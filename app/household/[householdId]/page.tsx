@@ -7,11 +7,27 @@ type PageProps = {
   params: { householdId: string };
 };
 
-export default async function HouseholdDashboardPage({
-  params,
-}: PageProps) {
+export default async function HouseholdDashboardPage({ params }: PageProps) {
   const supabase = supabaseServerClient;
   const householdId = params.householdId;
+
+  // 💡 Guard against missing/undefined param so we don't hit the DB with 'undefined'
+  if (!householdId || householdId === 'undefined') {
+    return (
+      <div className="max-w-xl mx-auto py-10 px-4">
+        <h1 className="text-xl font-semibold mb-2">Household not available</h1>
+        <p className="text-sm text-red-700">
+          No valid household id was provided in the URL.
+        </p>
+        <p className="mt-2 text-sm text-gray-600">
+          The address should look like:{' '}
+          <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">
+            /household/9074a61b-ce63-4e89-aa3a-5529915a21d2
+          </code>
+        </p>
+      </div>
+    );
+  }
 
   // 1) Load household
   const { data: household, error: householdError } = await supabase
@@ -31,24 +47,10 @@ export default async function HouseholdDashboardPage({
     .eq('id', householdId)
     .single();
 
-if (householdError || !household) {
-  console.error('Household load error', householdError);
-  return (
-    <div className="max-w-xl mx-auto py-10 px-4">
-      <h1 className="text-xl font-semibold mb-2">Household not available</h1>
-      <p className="text-sm text-red-700">
-        We couldn&apos;t load this household. Error:{' '}
-        <span className="font-mono">
-          {householdError?.message || 'No record found'}
-        </span>
-      </p>
-      <p className="mt-2 text-sm text-gray-600">
-        If you copied the ID from Supabase, double-check it matches exactly.
-      </p>
-    </div>
-  );
-}
-
+  if (householdError || !household) {
+    console.error('Household load error', householdError);
+    return notFound();
+  }
 
   // 2) Load members in this household
   const { data: members, error: membersError } = await supabase
@@ -97,7 +99,6 @@ if (householdError || !household) {
     console.error('Subscriptions load error', subsError);
   }
 
-  // Helper: label member types nicely
   const formatMemberType = (member: any) => {
     switch (member.member_type) {
       case 'player':
@@ -122,9 +123,8 @@ if (householdError || !household) {
         </h1>
 
         <p className="text-sm text-gray-700">
-          This page shows everyone in your household and their club
-          memberships. If anything looks incorrect, please contact the club
-          admin.
+          This page shows everyone in your household and their club memberships.
+          If anything looks incorrect, please contact the club admin.
         </p>
 
         <div className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
@@ -138,12 +138,18 @@ if (householdError || !household) {
               <div>{household.phone}</div>
             </div>
           )}
-          {(household.address_line1 || household.town_city || household.postcode) && (
+          {(household.address_line1 ||
+            household.town_city ||
+            household.postcode) && (
             <div className="sm:col-span-2">
               <div className="font-medium text-gray-900">Address</div>
               <div>
-                {household.address_line1 && <div>{household.address_line1}</div>}
-                {household.address_line2 && <div>{household.address_line2}</div>}
+                {household.address_line1 && (
+                  <div>{household.address_line1}</div>
+                )}
+                {household.address_line2 && (
+                  <div>{household.address_line2}</div>
+                )}
                 {(household.town_city || household.postcode) && (
                   <div>
                     {household.town_city}{' '}
@@ -158,9 +164,8 @@ if (householdError || !household) {
 
       {/* Members list */}
       <section className="border rounded-lg p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-centre justify-between gap-2">
           <h2 className="text-lg font-semibold">People in this household</h2>
-          {/* Future: “Add family member” button */}
           <button
             type="button"
             className="text-xs px-3 py-1 rounded border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
@@ -174,19 +179,16 @@ if (householdError || !household) {
             {members.map((m) => (
               <li
                 key={m.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border rounded-md px-3 py-2 bg-white"
+                className="flex flex-col sm:flex-row sm:items-centre justify-between gap-2 border rounded-md px-3 py-2 bg-white"
               >
                 <div>
-                  <div className="font-medium text-sm">
-                    {fullName(m)}
-                  </div>
+                  <div className="font-medium text-sm">{fullName(m)}</div>
                   <div className="text-xs text-gray-600">
                     {formatMemberType(m)}
                     {m.gender ? ` • ${m.gender}` : ''}
                     {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
                   </div>
                 </div>
-                {/* Future: per-member actions */}
                 <div className="flex flex-wrap gap-2 text-xs">
                   <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
                     Member
@@ -211,7 +213,7 @@ if (householdError || !household) {
             {subscriptions.map((sub: any) => (
               <div
                 key={sub.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border rounded-md px-3 py-2 bg-white"
+                className="flex flex-col sm:flex-row sm:items-centre justify-between gap-2 border rounded-md px-3 py-2 bg-white"
               >
                 <div>
                   <div className="font-medium text-sm">
@@ -226,7 +228,7 @@ if (householdError || !household) {
                     Started: {new Date(sub.created_at).toLocaleDateString()}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-centre gap-2 text-xs">
                   <span
                     className={`px-2 py-0.5 rounded-full ${
                       sub.status === 'active'
