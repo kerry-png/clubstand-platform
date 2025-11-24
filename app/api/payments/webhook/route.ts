@@ -66,7 +66,7 @@ export async function POST(req: Request) {
           .from('membership_subscriptions')
           .update({
             status: 'active',
-            paid_at: new Date().toISOString(),
+            // paid_at removed – column doesn’t exist yet
           })
           .in('id', subscriptionIds);
 
@@ -90,8 +90,6 @@ export async function POST(req: Request) {
         );
       }
     }
-
-    // You can handle other event types here later if needed.
 
     return NextResponse.json({ received: true });
   } catch (err: any) {
