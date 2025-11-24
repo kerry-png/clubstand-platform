@@ -1,5 +1,5 @@
 // app/club/[slug]/join/page.tsx
-import { createClient } from '@/lib/supabase/server';
+import { supabaseServerClient } from '@/lib/supabaseServer';
 import JoinForm from './JoinForm';
 
 type PageProps = {
@@ -7,7 +7,7 @@ type PageProps = {
 };
 
 export default async function JoinPage({ params }: PageProps) {
-  const supabase = await createClient();
+  const supabase = supabaseServerClient;
 
   // TEMP: hard-code Rainhill CC club details so we don't depend on slug/RLS yet
   const club = {
