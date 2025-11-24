@@ -3,15 +3,21 @@
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
 
+type PageParams = {
+  householdId: string;
+};
+
 type PageProps = {
-  params: { householdId: string };
+  params: Promise<PageParams>;
 };
 
 export default async function HouseholdDashboardPage({ params }: PageProps) {
   const supabase = supabaseServerClient;
-  const householdId = params.householdId;
 
-  // 💡 Guard against missing/undefined param so we don't hit the DB with 'undefined'
+  // 🧠 Next 16: params is a Promise, so we must await it
+  const resolvedParams = await params;
+  const householdId = resolvedParams.householdId;
+
   if (!householdId || householdId === 'undefined') {
     return (
       <div className="max-w-xl mx-auto py-10 px-4">
