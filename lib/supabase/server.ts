@@ -1,4 +1,4 @@
-// lib/supabase/server.ts
+// lib/supabase/server.ts  (you uploaded this)
 import 'server-only';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
@@ -11,7 +11,6 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Next 15-style API: use getAll / setAll
         getAll() {
           return cookieStore.getAll();
         },
@@ -21,8 +20,7 @@ export async function createClient() {
               cookieStore.set(name, value, options as CookieOptions);
             });
           } catch {
-            // Called from a Server Component – safe to ignore here
-            // if you have middleware handling session refresh.
+            // safe to ignore from Server Components
           }
         },
       },

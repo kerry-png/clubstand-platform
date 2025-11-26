@@ -1,19 +1,24 @@
 // app/membership/thank-you/page.tsx
+import Link from 'next/link';
 
 type ThankYouPageProps = {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  // In Next 16, searchParams is a Promise on the server
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-export default function ThankYouPage({ searchParams }: ThankYouPageProps) {
-  const sessionId = searchParams?.session_id;
+export default async function ThankYouPage({ searchParams }: ThankYouPageProps) {
+  const params = await searchParams;
+
+  const raw = params?.session_id;
+  const sessionId = Array.isArray(raw) ? raw[0] : raw;
 
   return (
-    <div className="max-w-xl mx-auto py-10 px-4 space-y-4">
+    <main className="max-w-xl mx-auto py-10 px-4 space-y-4">
       <h1 className="text-2xl font-semibold">Thank you for your payment</h1>
 
       <p className="text-sm text-gray-700">
         Your membership payment has been received. You&apos;ll get a confirmation
-        e-mail from Stripe shortly.
+        email from Stripe shortly.
       </p>
 
       <p className="text-sm text-gray-700">
@@ -27,12 +32,21 @@ export default function ThankYouPage({ searchParams }: ThankYouPageProps) {
         </p>
       )}
 
-      <a
-        href="/"
-        className="inline-flex items-center text-sm text-blue-700 hover:underline mt-4"
-      >
-        Back to homepage
-      </a>
-    </div>
+      <div className="mt-6 space-y-3">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center justify-center px-4 py-2 rounded-md bg-black text-white text-sm"
+        >
+          Go to my portal
+        </Link>
+
+        <Link
+          href="/"
+          className="block text-sm text-blue-700 hover:underline"
+        >
+          Back to homepage
+        </Link>
+      </div>
+    </main>
   );
 }

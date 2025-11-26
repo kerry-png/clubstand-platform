@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 
 type Plan = {
   id: string;
@@ -65,7 +65,7 @@ export default function JoinForm({ clubId, plans }: Props) {
     setJuniors((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
     setLoading(true);
@@ -297,12 +297,10 @@ export default function JoinForm({ clubId, plans }: Props) {
                 }
               >
                 <option value="" disabled>
-                  Select gender…
+                  Select sex...
                 </option>
-                <option value="male">Boy</option>
-                <option value="female">Girl</option>
-                <option value="non-binary">Non-binary</option>
-                <option value="prefer_not_to_say">Prefer not to say</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
               </select>
             </div>
 

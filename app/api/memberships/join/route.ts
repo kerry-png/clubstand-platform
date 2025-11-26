@@ -1,6 +1,6 @@
 // app/api/memberships/join/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseServerClient } from '@/lib/supabaseServer';
+import { createClient } from '@/lib/supabase/server';
 
 type JoinPayload = {
   clubId: string;
@@ -28,7 +28,7 @@ type JoinPayload = {
 };
 
 export async function POST(req: Request) {
-  const supabase = supabaseServerClient;
+  const supabase = await createClient();
 
   let body: JoinPayload;
   try {
@@ -181,7 +181,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // Note: using householdId (camelCase) for the frontend
   return NextResponse.json({
     householdId,
     subscriptions: createdSubscriptions,

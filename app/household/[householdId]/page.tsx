@@ -2,6 +2,7 @@
 
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 
 type PageParams = {
   householdId: string;
@@ -9,14 +10,24 @@ type PageParams = {
 
 type PageProps = {
   params: Promise<PageParams>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
-export default async function HouseholdDashboardPage({ params }: PageProps) {
+export default async function HouseholdDashboardPage(props: PageProps) {
   const supabase = supabaseServerClient;
 
-  // 🧠 Next 16: params is a Promise, so we must await it
-  const resolvedParams = await params;
+  const resolvedParams = await props.params;
+  const query = await props.searchParams;
+
   const householdId = resolvedParams.householdId;
+
+  const setupRaw = query?.setup;
+  const isSetup =
+    typeof setupRaw === 'string'
+      ? setupRaw === '1'
+      : Array.isArray(setupRaw)
+      ? setupRaw.includes('1')
+      : false;
 
   if (!householdId || householdId === 'undefined') {
     return (
@@ -105,6 +116,11 @@ export default async function HouseholdDashboardPage({ params }: PageProps) {
     console.error('Subscriptions load error', subsError);
   }
 
+  const pendingCount =
+    subscriptions?.filter((s: any) => s.status === 'pending').length ?? 0;
+  const activeCount =
+    subscriptions?.filter((s: any) => s.status === 'active').length ?? 0;
+
   const formatMemberType = (member: any) => {
     switch (member.member_type) {
       case 'player':
@@ -122,6 +138,26 @@ export default async function HouseholdDashboardPage({ params }: PageProps) {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-8">
+      {/* Setup banner (when coming straight from join flow) */}
+      {isSetup && (
+        <section className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded">
+          <h2 className="font-semibold text-blue-700">Set up your household</h2>
+          <p className="text-sm text-blue-700">
+            You&apos;ve started a new membership. Add any family members living
+            in your household so the club has a complete picture of who this
+            membership covers.
+          </p>
+          <div className="mt-3">
+            <Link
+              href={`/household/${householdId}/add-member`}
+              className="inline-flex px-3 py-1.5 text-sm rounded bg-blue-600 text-white"
+            >
+              Add family member
+            </Link>
+          </div>
+        </section>
+      )}
+
       {/* Household header */}
       <section className="border rounded-lg p-4 space-y-2 bg-gray-50">
         <h1 className="text-2xl font-semibold">
@@ -172,12 +208,22 @@ export default async function HouseholdDashboardPage({ params }: PageProps) {
       <section className="border rounded-lg p-4 space-y-3">
         <div className="flex items-centre justify-between gap-2">
           <h2 className="text-lg font-semibold">People in this household</h2>
-          <button
-            type="button"
-            className="text-xs px-3 py-1 rounded border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
-          >
-            Add family member (coming soon)
-          </button>
+
+          <div className="flex gap-2">
+            <Link
+              href={`/household/${householdId}/add-member?type=player`}
+              className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Add player
+            </Link>
+            
+            <Link
+              href={`/household/${householdId}/add-member?type=supporter`}
+              className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Add social member
+            </Link>
+          </div>
         </div>
 
         {members && members.length > 0 ? (
@@ -213,6 +259,42 @@ export default async function HouseholdDashboardPage({ params }: PageProps) {
       {/* Memberships / subscriptions */}
       <section className="border rounded-lg p-4 space-y-3">
         <h2 className="text-lg font-semibold">Memberships &amp; payments</h2>
+
+        {/* Next steps messaging */}
+        <div className="rounded-md bg-slate-50 border border-slate-200 p-3 text-xs text-slate-800 space-y-1">
+          {subscriptions && subscriptions.length > 0 ? (
+            <>
+              {pendingCount > 0 && (
+                <p>
+                  You have{' '}
+                  <span className="font-semibold">
+                    {pendingCount} membership
+                    {pendingCount > 1 ? 's' : ''} awaiting payment
+                  </span>
+                  . Your club may send you a payment link or instructions to
+                  complete these. Until payment is confirmed, these
+                  memberships will stay in &quot;Awaiting payment&quot;.
+                </p>
+              )}
+              {activeCount > 0 && (
+                <p>
+                  <span className="font-semibold">
+                    {activeCount} membership
+                    {activeCount > 1 ? 's are' : ' is'} active
+                  </span>{' '}
+                  for this household. If anything looks wrong, please contact
+                  the club.
+                </p>
+              )}
+            </>
+          ) : (
+            <p>
+              No memberships are set up yet for this household. Once a
+              membership is created for someone here, it will appear below along
+              with its payment status.
+            </p>
+          )}
+        </div>
 
         {subscriptions && subscriptions.length > 0 ? (
           <div className="space-y-2">
