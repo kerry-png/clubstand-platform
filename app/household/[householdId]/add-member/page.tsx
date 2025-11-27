@@ -10,14 +10,16 @@ type PageParams = {
 
 type PageProps = {
   params: Promise<PageParams>;
-  searchParams?: { type?: string | string[] };
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
-export default async function AddMemberPage({ params, searchParams }: PageProps) {
+export default async function AddMemberPage(props: PageProps) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params is a Promise
-  const resolvedParams = await params;
+  // Next 16: params and searchParams are Promises
+  const resolvedParams = await props.params;
+  const query = await props.searchParams;
+
   const householdId = resolvedParams.householdId;
 
   if (!householdId || householdId === 'undefined') {
@@ -31,8 +33,8 @@ export default async function AddMemberPage({ params, searchParams }: PageProps)
     );
   }
 
-  // Work out requested member type from the query string
-  const rawType = searchParams?.type;
+  // Work out requested member type from the query string (?type=player|supporter)
+  const rawType = query?.type;
   const normalised =
     Array.isArray(rawType) ? rawType[0] : rawType;
   const initialType =

@@ -3,6 +3,9 @@
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import ProceedToPaymentButton from './ProceedToPaymentButton';
+import HouseholdPricingPreview from './HouseholdPricingPreview';
+import { RenewButton } from './RenewButton';
 
 type PageParams = {
   householdId: string;
@@ -121,6 +124,16 @@ export default async function HouseholdDashboardPage(props: PageProps) {
   const activeCount =
     subscriptions?.filter((s: any) => s.status === 'active').length ?? 0;
 
+  // Map memberId -> subscriptions for that member
+  const memberSubsMap = new Map<string, any[]>();
+  (subscriptions ?? []).forEach((sub: any) => {
+    const memId = sub.member?.id;
+    if (!memId) return;
+    const existing = memberSubsMap.get(memId) ?? [];
+    existing.push(sub);
+    memberSubsMap.set(memId, existing);
+  });
+
   const formatMemberType = (member: any) => {
     switch (member.member_type) {
       case 'player':
@@ -136,6 +149,33 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
   const fullName = (m: any) => `${m.first_name} ${m.last_name}`;
 
+  const membershipSummaryForMember = (memberId: string) => {
+    const subsForMember = memberSubsMap.get(memberId) ?? [];
+    if (subsForMember.length === 0) {
+      return {
+        label: 'No membership yet',
+        status: 'none' as const,
+        planName: null as string | null,
+      };
+    }
+
+    // Prefer active, then pending, then anything else
+    const active = subsForMember.find((s: any) => s.status === 'active');
+    const pending = subsForMember.find((s: any) => s.status === 'pending');
+    const chosen = active ?? pending ?? subsForMember[0];
+
+    return {
+      label:
+        chosen.status === 'active'
+          ? 'Active membership'
+          : chosen.status === 'pending'
+          ? 'Awaiting payment'
+          : `Status: ${chosen.status}`,
+      status: chosen.status as 'active' | 'pending' | 'other',
+      planName: chosen.plan?.name ?? null,
+    };
+  };
+
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-8">
       {/* Setup banner (when coming straight from join flow) */}
@@ -149,10 +189,10 @@ export default async function HouseholdDashboardPage(props: PageProps) {
           </p>
           <div className="mt-3">
             <Link
-              href={`/household/${householdId}/add-member`}
+              href={`/household/${householdId}/add-member?type=player`}
               className="inline-flex px-3 py-1.5 text-sm rounded bg-blue-600 text-white"
             >
-              Add family member
+              Add player
             </Link>
           </div>
         </section>
@@ -160,14 +200,25 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
       {/* Household header */}
       <section className="border rounded-lg p-4 space-y-2 bg-gray-50">
-        <h1 className="text-2xl font-semibold">
-          {household.name || 'Household'} – Membership Overview
-        </h1>
+        <div className="flex items-centre justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              {household.name || 'Household'} – Membership Overview
+            </h1>
+            <p className="text-sm text-gray-700">
+              This page shows everyone in your household and their club
+              memberships. If anything looks incorrect, you can update your
+              contact details here or contact the club admin.
+            </p>
+          </div>
 
-        <p className="text-sm text-gray-700">
-          This page shows everyone in your household and their club memberships.
-          If anything looks incorrect, please contact the club admin.
-        </p>
+          <Link
+            href={`/household/${householdId}/edit`}
+            className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Edit details
+          </Link>
+        </div>
 
         <div className="mt-3 grid gap-2 text-sm text-gray-700 sm:grid-cols-2">
           <div>
@@ -181,6 +232,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             </div>
           )}
           {(household.address_line1 ||
+            household.address_line2 ||
             household.town_city ||
             household.postcode) && (
             <div className="sm:col-span-2">
@@ -216,7 +268,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             >
               Add player
             </Link>
-            
+
             <Link
               href={`/household/${householdId}/add-member?type=supporter`}
               className="text-xs px-3 py-1.5 rounded-md border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
@@ -228,26 +280,54 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
         {members && members.length > 0 ? (
           <ul className="space-y-2">
-            {members.map((m) => (
-              <li
-                key={m.id}
-                className="flex flex-col sm:flex-row sm:items-centre justify-between gap-2 border rounded-md px-3 py-2 bg-white"
-              >
-                <div>
-                  <div className="font-medium text-sm">{fullName(m)}</div>
-                  <div className="text-xs text-gray-600">
-                    {formatMemberType(m)}
-                    {m.gender ? ` • ${m.gender}` : ''}
-                    {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
+            {members.map((m: any) => {
+              const membership = membershipSummaryForMember(m.id);
+
+              return (
+                <li
+                  key={m.id}
+                  className="flex flex-col sm:flex-row sm:items-centre justify-between gap-2 border rounded-md px-3 py-2 bg-white"
+                >
+                  <div>
+                    <div className="font-medium text-sm">{fullName(m)}</div>
+                    <div className="text-xs text-gray-600">
+                      {formatMemberType(m)}
+                      {m.gender ? ` • ${m.gender}` : ''}
+                      {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
+                    </div>
+                    {membership.planName && (
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        Membership: {membership.planName}
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                    Member
-                  </span>
-                </div>
-              </li>
-            ))}
+                  <div className="flex flex-wrap gap-2 text-xs items-centre">
+                    {membership.status === 'active' && (
+                      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+                        Active membership
+                      </span>
+                    )}
+                    {membership.status === 'pending' && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                        Awaiting payment
+                      </span>
+                    )}
+                    {membership.status === 'none' && (
+                      <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                        No membership yet
+                      </span>
+                    )}
+
+                    <Link
+                      href={`/household/${householdId}/members/${m.id}/edit`}
+                      className="px-2 py-0.5 rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    >
+                      Edit
+                    </Link>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="text-sm text-gray-600">
@@ -271,9 +351,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                     {pendingCount} membership
                     {pendingCount > 1 ? 's' : ''} awaiting payment
                   </span>
-                  . Your club may send you a payment link or instructions to
-                  complete these. Until payment is confirmed, these
-                  memberships will stay in &quot;Awaiting payment&quot;.
+                  . You can complete these securely online.
                 </p>
               )}
               {activeCount > 0 && (
@@ -294,6 +372,21 @@ export default async function HouseholdDashboardPage(props: PageProps) {
               with its payment status.
             </p>
           )}
+        </div>
+
+        {/* Pending payment preview */}
+        <HouseholdPricingPreview householdId={householdId} />
+
+        {/* Stripe payment button – only show if there are pending subs */}
+        {pendingCount > 0 && (
+          <div className="mt-3">
+            <ProceedToPaymentButton householdId={householdId} />
+          </div>
+        )}
+
+        {/* NEW: Renew for 2026 button */}
+        <div className="mt-3">
+          <RenewButton householdId={householdId} seasonYear={2026} />
         </div>
 
         {subscriptions && subscriptions.length > 0 ? (

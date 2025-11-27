@@ -1,96 +1,109 @@
 // app/api/households/[householdId]/members/route.ts
-import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 
-type AddMemberPayload = {
-  member: {
-    first_name: string;
-    last_name: string;
-    date_of_birth: string | null;
-    gender: string | null;
-    email: string | null;
-    phone: string | null;
-    member_type: 'player' | 'supporter' | 'coach';
-  };
-  planId: string | null;
+import { NextResponse } from 'next/server';
+import { supabaseServerClient } from '@/lib/supabaseServer';
+
+type RouteParams = {
+  householdId: string;
 };
 
-export async function POST(req: Request) {
-  const supabase = await createClient();
+export async function POST(
+  req: Request,
+  context: { params: RouteParams } | { params: Promise<RouteParams> },
+) {
+  const supabase = supabaseServerClient;
 
-  // 🔍 Derive householdId directly from the URL path:
-  const url = new URL(req.url);
-  const segments = url.pathname.split('/').filter(Boolean);
-  // Expecting: ['api', 'households', '<householdId>', 'members']
-  const householdsIndex = segments.indexOf('households');
-  const householdId =
-    householdsIndex !== -1 ? segments[householdsIndex + 1] : null;
+  // Next 16: params may be an object or a Promise
+  const rawParams: any = (context as any).params;
+  const resolvedParams: RouteParams = rawParams?.then
+    ? await rawParams
+    : rawParams;
 
-  if (!householdId) {
-    console.error('Could not derive householdId from URL', url.pathname);
+  const householdId = resolvedParams?.householdId;
+
+  if (!householdId || householdId === 'undefined') {
+    console.error('Add member: missing householdId in params', resolvedParams);
     return NextResponse.json(
-      { error: 'Missing householdId in URL' },
+      { error: 'Missing household id in URL' },
       { status: 400 },
     );
   }
 
-  let body: AddMemberPayload;
-
+  let body: any;
   try {
-    body = (await req.json()) as AddMemberPayload;
+    body = await req.json();
   } catch (err) {
-    console.error('Invalid JSON body', err);
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-  }
-
-  const { member, planId } = body;
-
-  if (!member?.first_name || !member?.last_name) {
+    console.error('Add member invalid JSON', err);
     return NextResponse.json(
-      { error: 'Missing member name details' },
+      { error: 'Invalid request body' },
       { status: 400 },
     );
   }
 
-  // 1) Ensure the household exists and get the real club_id
-  const { data: household, error: householdError } = await supabase
-    .from('households')
-    .select('id, club_id')
-    .eq('id', householdId)
-    .maybeSingle();
+  const { clubId, member } = body ?? {};
 
-  if (householdError || !household) {
-    console.error('Household not found or error', householdError);
+  if (!clubId) {
     return NextResponse.json(
-      { error: 'Household not found' },
+      { error: 'Missing clubId in request body' },
       { status: 400 },
     );
   }
 
-  const clubId = household.club_id;
+  if (!member || typeof member !== 'object') {
+    return NextResponse.json(
+      { error: 'Missing member details in request body' },
+      { status: 400 },
+    );
+  }
 
-  // 2) Create the member
-  const { data: newMember, error: memberError } = await supabase
+  const {
+    first_name,
+    last_name,
+    date_of_birth,
+    gender,
+    email,
+    phone,
+    member_type,
+  } = member;
+
+  if (!first_name || !last_name) {
+    return NextResponse.json(
+      { error: 'First name and last name are required' },
+      { status: 400 },
+    );
+  }
+
+  if (!member_type) {
+    return NextResponse.json(
+      { error: 'Member type is required (player or supporter)' },
+      { status: 400 },
+    );
+  }
+
+  // 1) Create the member row
+  const { data: createdMember, error: memberError } = await supabase
     .from('members')
-    .insert({
-      club_id: clubId,
-      household_id: householdId,
-      first_name: member.first_name,
-      last_name: member.last_name,
-      date_of_birth: member.date_of_birth,
-      gender: member.gender,
-      member_type: member.member_type,
-      email: member.email,
-      phone: member.phone,
-    })
-    .select('id')
+    .insert([
+      {
+        household_id: householdId,
+        club_id: clubId,
+        first_name,
+        last_name,
+        date_of_birth: date_of_birth || null,
+        gender: gender || null,
+        email: email || null,
+        phone: phone || null,
+        member_type,
+      },
+    ])
+    .select('id, date_of_birth, member_type')
     .single();
 
-  if (memberError || !newMember) {
-    console.error('Member insert error', memberError);
+  if (memberError || !createdMember) {
+    console.error('Add member insert error', memberError);
     return NextResponse.json(
       {
-        error: 'Failed to create member',
+        error: 'Failed to add member',
         details: memberError?.message,
         code: memberError?.code,
       },
@@ -98,77 +111,119 @@ export async function POST(req: Request) {
     );
   }
 
-  const createdSubscriptions: Array<{
-    member_id: string;
-    plan_id: string;
-    subscription_id: string;
-  }> = [];
+  const memberId: string = createdMember.id;
 
-  // 3) If a plan was chosen, create a pending subscription
-  if (planId) {
-    const { data: planRow, error: planError } = await supabase
-      .from('membership_plans')
-      .select('price_pennies')
-      .eq('id', planId)
-      .single();
+  // 2) Try to automatically attach a membership for this member
+  //    based on member_type + date_of_birth + club plans.
+  let createdSubscriptionId: string | null = null;
 
-    if (planError || !planRow) {
-      console.error('Plan lookup error', planError);
-      return NextResponse.json(
-        {
-          error: 'Failed to create subscription',
-          details: planError?.message,
-          code: planError?.code,
-        },
-        { status: 400 },
-      );
+  try {
+    // Only auto-attach plans for player/supporter types
+    if (member_type === 'player' || member_type === 'supporter') {
+      // Load all visible, non-household plans for this club
+      const { data: plans, error: plansError } = await supabase
+        .from('membership_plans')
+        .select(
+          `
+            id,
+            name,
+            slug,
+            price_pennies,
+            is_visible_online,
+            is_player_plan,
+            is_junior_only,
+            is_household_plan
+          `,
+        )
+        .eq('club_id', clubId)
+        .eq('is_visible_online', true);
+
+      if (plansError) {
+        console.error('Auto-membership: failed to load plans', plansError);
+      } else if (plans && plans.length > 0) {
+        const now = new Date();
+
+        const isJunior = (() => {
+          if (!createdMember.date_of_birth) return false;
+          const dob = new Date(createdMember.date_of_birth);
+          if (Number.isNaN(dob.getTime())) return false;
+
+          // Simple rule for now: under 18 years old => junior
+          const ageMs = now.getTime() - dob.getTime();
+          const ageYears = ageMs / (1000 * 60 * 60 * 24 * 365.25);
+          return ageYears < 18;
+        })();
+
+        let chosenPlan: any | null = null;
+
+        if (member_type === 'player') {
+          // Player: choose a player plan, junior vs adult
+          if (isJunior) {
+            chosenPlan = plans.find(
+              (p: any) =>
+                p.is_player_plan &&
+                p.is_junior_only &&
+                !p.is_household_plan,
+            );
+          } else {
+            chosenPlan = plans.find(
+              (p: any) =>
+                p.is_player_plan &&
+                !p.is_junior_only &&
+                !p.is_household_plan,
+            );
+          }
+        } else if (member_type === 'supporter') {
+          // Social / supporter: non-player, non-household visible plan
+          chosenPlan = plans.find(
+            (p: any) => !p.is_player_plan && !p.is_household_plan,
+          );
+        }
+
+        if (chosenPlan) {
+          // Insert subscription using the same shape as /api/memberships/join
+          const { data: sub, error: subError } = await supabase
+            .from('membership_subscriptions')
+            .insert({
+              club_id: clubId,
+              plan_id: chosenPlan.id,
+              member_id: memberId,
+              household_id: householdId,
+              amount_pennies: chosenPlan.price_pennies,
+              status: 'pending',
+            })
+            .select('id')
+            .single();
+
+          if (subError || !sub) {
+            console.error(
+              'Auto-membership: insert subscription error',
+              subError,
+            );
+          } else {
+            createdSubscriptionId = sub.id;
+          }
+        } else {
+          console.warn(
+            'Auto-membership: no matching plan found for member',
+            {
+              member_type,
+              isJunior,
+            },
+          );
+        }
+      }
     }
-
-    const { data: sub, error: subError } = await supabase
-      .from('membership_subscriptions')
-      .insert({
-        club_id: clubId,
-        plan_id: planId,
-        member_id: newMember.id,
-        household_id: householdId,
-        amount_pennies: planRow.price_pennies,
-      })
-      .select('id, plan_id, member_id')
-      .single();
-
-    if (subError || !sub) {
-      console.error('Subscription insert error', subError);
-      return NextResponse.json(
-        {
-          error: 'Failed to create subscription',
-          details: subError?.message,
-          code: subError?.code,
-        },
-        { status: 400 },
-      );
-    }
-
-    createdSubscriptions.push({
-      member_id: sub.member_id,
-      plan_id: sub.plan_id,
-      subscription_id: sub.id,
-    });
-
-    // Non-fatal: attempt to assign to default team
-    try {
-      await supabase.rpc('assign_member_to_default_team', {
-        p_club_id: clubId,
-        p_member_id: newMember.id,
-        p_plan_id: planId,
-      });
-    } catch (rpcError) {
-      console.error('assign_member_to_default_team error', rpcError);
-      // ignore – not critical
-    }
+  } catch (autoErr) {
+    console.error('Auto-membership: unexpected error', autoErr);
   }
 
-  return NextResponse.json({
-    householdId,
-    subscriptions: createdSubscriptions,
-  });
+  return NextResponse.json(
+    {
+      success: true,
+      memberId,
+      subscriptionId: createdSubscriptionId,
+    },
+    { status: 200 },
+  );
 }
