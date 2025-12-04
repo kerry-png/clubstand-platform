@@ -14,6 +14,9 @@ export default async function MembershipPage() {
     redirect('/signup?redirectTo=/membership');
   }
 
-  // For v1, Rainhill only – go straight to the junior join form
-  redirect('/club/rainhill/join');
+  // Default club slug (Rainhill for now, configurable later)
+  const defaultClubSlug =
+    process.env.NEXT_PUBLIC_DEFAULT_CLUB_SLUG ?? 'rainhill-cc';
+
+  redirect(`/club/${defaultClubSlug}/join`);
 }

@@ -206,19 +206,18 @@ const debug = engine.debug;
           <span className="font-semibold">
             {formatPounds(remainingPennies)}
           </span>{' '}
-            {(coveredPennies > 0 || pendingPennies > 0) && (
+          {remainingPennies === 0 && (
+            <span className="text-emerald-900/80">
+              (you don&apos;t need to pay anything else online for 2026)
+            </span>
+          )}
+          {remainingPennies > 0 &&
+            typeof coveredPennies === 'number' &&
+            coveredPennies > 0 && (
               <span className="text-emerald-900/80">
-                (
-                {coveredPennies > 0 && (
-                  <>already paid: {formatPounds(coveredPennies)}</>
-                )}
-
-                {coveredPennies > 0 && pendingPennies > 0 && ' • '}
-
-                {pendingPennies > 0 && (
-                  <>awaiting payment: {formatPounds(pendingPennies)}</>
-                )}
-                )
+                (already covered{' '}
+                {formatPounds(coveredPennies)} in active/pending
+                subscriptions)
               </span>
             )}
         </p>
@@ -244,6 +243,17 @@ const debug = engine.debug;
               </span>{' '}
               ({debug.juniorCount} junior
               {debug.juniorCount === 1 ? '' : 's'})
+              {debug.juniorCount > 0 && (
+                <>
+                  {' '}
+                  <span className="text-emerald-900/80">
+                    {/* Rainhill-specific wording: juniors pay monthly via DD */}
+                    {debug.juniorCount === 1
+                      ? ' — equivalent to £13/month direct debit'
+                      : ' — equivalent to £20/month direct debit for the household'}
+                  </span>
+                </>
+              )}
             </p>
             <p>
               Socials:{' '}

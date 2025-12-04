@@ -2,16 +2,23 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type Props = {
   householdId: string;
+  disabled?: boolean;
 };
 
-export default function ProceedToPaymentButton({ householdId }: Props) {
+export default function ProceedToPaymentButton({
+  householdId,
+  disabled,
+}: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
+    if (disabled || loading) return; // safety guard
+
     setError(null);
     setLoading(true);
 
@@ -26,7 +33,10 @@ export default function ProceedToPaymentButton({ householdId }: Props) {
       try {
         data = await res.json();
       } catch (err) {
-        console.error('Failed to parse JSON from /api/payments/checkout', err);
+        console.error(
+          'Failed to parse JSON from /api/payments/checkout',
+          err,
+        );
       }
 
       if (!res.ok) {
@@ -49,22 +59,29 @@ export default function ProceedToPaymentButton({ householdId }: Props) {
     } catch (err: any) {
       console.error('ProceedToPayment error', err);
       setError(
-        err.message || 'Something went wrong starting the payment session.',
+        err.message ||
+          'Something went wrong starting the payment session.',
       );
       setLoading(false);
     }
   }
 
+  const isDisabled = disabled || loading;
+
   return (
     <div className="space-y-1">
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={loading}
-        className="px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-60"
-      >
-        {loading ? 'Starting secure payment…' : 'Pay online now'}
-      </button>
+<button
+  type="button"
+  onClick={handleClick}
+  disabled={isDisabled}
+  className={`px-4 py-2 rounded text-sm ${
+    isDisabled
+      ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
+      : 'bg-[var(--club-primary)] text-white hover:brightness-90'
+  }`}
+>
+  {loading ? 'Starting secure payment…' : 'Pay online now'}
+</button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   );

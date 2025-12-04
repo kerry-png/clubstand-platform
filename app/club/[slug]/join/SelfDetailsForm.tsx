@@ -196,7 +196,7 @@ export default function SelfDetailsForm({
       <button
         type="submit"
         disabled={loading}
-        className="px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-60"
+        className="px-4 py-2 rounded bg-[var(--club-primary)] text-white text-sm hover:brightness-90 disabled:opacity-60"
       >
         {loading ? 'Starting membership…' : 'Continue'}
       </button>

@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
         id,
         amount_pennies,
         membership_plans (
-          stripe_price_id,
+          billing_period,
+          stripe_price_id_annual,
+          stripe_price_id_monthly,
           name,
           slug
         )
@@ -52,29 +54,63 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Stripe line items
-    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] =
-      subs.map((sub: any) => {
-        const priceId = sub.membership_plans?.stripe_price_id;
-        if (!priceId) {
-          throw new Error(
-            `Plan missing stripe_price_id for household ${householdId}`,
-          );
-        }
-        return {
-          price: priceId,
-          quantity: 1,
-        };
+    // Stripe line items with safety guard for missing prices
+    const missingPricePlans: string[] = [];
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+
+    for (const sub of subs as any[]) {
+      const plan = sub.membership_plans;
+      if (!plan) {
+        throw new Error(
+          `Subscription ${sub.id} is missing membership plan for household ${householdId}`,
+        );
+      }
+
+      // Decide which Stripe price to use based on plan billing_period
+      let priceId: string | null = null;
+
+      if (plan.billing_period === 'monthly') {
+        priceId = plan.stripe_price_id_monthly;
+      } else {
+        // Treat 'annual' and 'one_off' as annual prices; fall back if needed
+        priceId =
+          plan.stripe_price_id_annual ?? plan.stripe_price_id_monthly;
+      }
+
+      if (!priceId) {
+        // Track plans that aren't ready for online payment
+        missingPricePlans.push(`${plan.name} (slug: ${plan.slug})`);
+        continue;
+      }
+
+      line_items.push({
+        price: priceId,
+        quantity: 1,
       });
+    }
+
+    // If any plan in the basket has no Stripe price, bail with a clean error
+    if (missingPricePlans.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Some membership plans are not configured for online payment yet.',
+          details:
+            'Please add Stripe price IDs for these plans before taking payment online.',
+          plans: missingPricePlans,
+        },
+        { status: 400 },
+      );
+    }
 
     const origin =
       req.headers.get('origin') ?? process.env.NEXT_PUBLIC_SITE_URL;
 
     const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
+      mode: 'subscription',
       line_items,
       success_url: `${origin}/membership/thank-you?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/club/rainhillcc/join?cancelled=1`,
+      cancel_url: `${origin}/club/rainhill-cc/join?cancelled=1`,
       metadata: {
         household_id: householdId,
         subscription_ids: subs.map((s: any) => s.id).join(','),

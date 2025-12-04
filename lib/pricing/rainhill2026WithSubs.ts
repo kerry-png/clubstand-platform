@@ -1,11 +1,13 @@
 // lib/pricing/rainhill2026WithSubs.ts
 
+import { calculateClubPricing } from './index';
+
 import {
-  calculateRainhill2026Pricing,
   type RainhillPricingResult,
   type AdultPricingItem,
   type SocialPricingItem,
   type HouseholdMemberInput,
+  type ClubPricingConfig,
 } from './rainhill2026';
 
 export type BillingPeriod = 'annual';
@@ -58,6 +60,8 @@ export interface RainhillPricingWithSubs {
   }[];
 
   redundantSubscriptions: SubscriptionRow[];
+
+  memberBreakdown: RainhillPricingResult['memberBreakdown'];
 
   totals: {
     engineAnnualPennies: number;
@@ -142,6 +146,7 @@ interface MergeOptions {
   members: HouseholdMemberInput[];
   existingSubscriptions: SubscriptionRow[];
   seasonYear?: number;
+  config?: ClubPricingConfig;
 }
 
 export function buildRainhill2026PricingWithSubs(
@@ -152,12 +157,14 @@ export function buildRainhill2026PricingWithSubs(
     members,
     existingSubscriptions,
     seasonYear = 2026,
+    config,
   } = options;
 
-  const engine = calculateRainhill2026Pricing(members, seasonYear);
+  // ⬇️ This now respects pricing_model via calculateClubPricing
+  const engine = calculateClubPricing(members, seasonYear, config!);
   const charges = buildRainhill2026ChargeItems(engine);
 
-  // Only 2026 subs for this household
+  // Only seasonYear subs for this household
   const subs2026 = existingSubscriptions.filter(
     (s) =>
       s.household_id === householdId &&
@@ -230,6 +237,7 @@ export function buildRainhill2026PricingWithSubs(
     },
     matched,
     redundantSubscriptions,
+    memberBreakdown: engine.memberBreakdown,
     totals: {
       engineAnnualPennies,
       alreadyCoveredAnnualPennies: activeAnnualPennies,

@@ -136,25 +136,24 @@ export default async function JoinPage({ params }: PageProps) {
           available. Please contact the club directly to join.
         </p>
       )}
-
+              <h2 className="text-2xl font-semibold">
+                Memberships
+              </h2>
       {hasAny && (
         <section className="space-y-6">
           {/* Adult memberships */}
           {adultPlans.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold">
-                Adult cricket memberships
-              </h2>
               <div className="grid gap-4 md:grid-cols-2">
                 {adultPlans.map((plan) => (
                   <Link
                     key={plan.id}
                     href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
-                    className="border rounded-2xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+                    className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-base font-semibold">
+                        <h3 className="text-lg font-semibold text-slate-900">
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -168,7 +167,7 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-black text-white">
+                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
                         Join as {plan.name}
                       </span>
                     </div>
@@ -181,17 +180,17 @@ export default async function JoinPage({ params }: PageProps) {
           {/* Junior memberships */}
           {juniorPlans.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold">Junior memberships</h2>
+              {/*<h2 className="text-lg font-semibold">Junior memberships</h2>*/}
               <div className="grid gap-4 md:grid-cols-2">
                 {juniorPlans.map((plan) => (
                   <Link
                     key={plan.id}
                     href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
-                    className="border rounded-2xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+                    className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-base font-semibold">
+                        <h3 className="text-lg font-semibold text-slate-900">
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -205,7 +204,7 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-black text-white">
+                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
                         Join with this junior membership
                       </span>
                     </div>
@@ -218,17 +217,17 @@ export default async function JoinPage({ params }: PageProps) {
           {/* Social / non-playing memberships */}
           {socialPlans.length > 0 && (
             <div className="space-y-3">
-              <h2 className="text-lg font-semibold">Social & non-playing</h2>
+              {/*<h2 className="text-lg font-semibold">Social & non-playing</h2>*/}
               <div className="grid gap-4 md:grid-cols-2">
                 {socialPlans.map((plan) => (
                   <Link
                     key={plan.id}
                     href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
-                    className="border rounded-2xl p-4 bg-white shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+                    className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-base font-semibold">
+                        <h3 className="text-lg font-semibold text-slate-900">
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -242,7 +241,7 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-black text-white">
+                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
                         Join with this membership
                       </span>
                     </div>
