@@ -35,29 +35,16 @@ function calculateAgeBand(age: number | null): string | null {
   return `U${bandAge}`;
 }
 
-type RouteContext =
-  | { params: { clubId: string } }
-  | { params: Promise<{ clubId: string }> };
+type RouteContext = {
+  params: Promise<{ clubId: string }>;
+};
 
 export async function GET(req: Request, context: RouteContext) {
   try {
     const supabase = supabaseServerClient;
 
-    // 🔑 Handle both plain-object and Promise-style params
-    const rawParams: any = (context as any).params;
-    const resolvedParams =
-      rawParams && typeof rawParams.then === "function"
-        ? await rawParams
-        : rawParams;
-
-    const clubId = resolvedParams?.clubId as string | undefined;
-
-    console.log("Stats route params:", {
-      rawParamsType: typeof rawParams,
-      hasThen: !!rawParams?.then,
-      resolvedParams,
-      clubId,
-    });
+    // 🔑 Handle Promise-style params for Next.js 16
+    const { clubId } = await context.params;
 
     if (!clubId) {
       return NextResponse.json(

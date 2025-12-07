@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
 
 type RouteContext = {
-  params: { clubId: string };
+  params: Promise<{ clubId: string }>;
 };
 
 function getServiceSupabase() {

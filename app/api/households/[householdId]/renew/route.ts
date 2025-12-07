@@ -121,26 +121,19 @@ function getStripePriceForCharge(charge: EngineChargeItem): string {
 
 export async function POST(
   req: Request,
-  context:
-    | { params: RouteParams }
-    | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   try {
     const supabase = supabaseServerClient;
 
-    // Next 16: params may be a Promise
-    const rawParams: any = (context as any).params;
-    const resolvedParams: RouteParams = rawParams?.then
-      ? await rawParams
-      : rawParams;
+    // Next.js 16: params is a Promise
+    const { householdId } = await context.params;
 
     const url = new URL(req.url);
     const yearParam = url.searchParams.get('year');
     const seasonYear =
       (yearParam ? Number(yearParam) : DEFAULT_SEASON_YEAR) ||
       DEFAULT_SEASON_YEAR;
-
-    const householdId = resolvedParams?.householdId;
 
     if (!householdId || householdId === 'undefined') {
       return NextResponse.json(
