@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 
 type RouteContext = {
-  params: Record<string, string | undefined>;
+  params: Promise<Record<string, string | undefined>>;
 };
 
 const VALID_TYPES = [
@@ -24,8 +24,8 @@ const VALID_APPLIES = [
 ] as const;
 
 // Try params first; if that fails, parse from URL path: /api/admin/clubs/:clubId/consent-questions
-function resolveClubId(req: Request, ctx: RouteContext): string | null {
-  const p = ctx.params || {};
+async function resolveClubId(req: Request, ctx: RouteContext): Promise<string | null> {
+  const p = await ctx.params || {};
 
   const fromParams =
     p.clubId ??
@@ -53,7 +53,7 @@ function resolveClubId(req: Request, ctx: RouteContext): string | null {
 
 export async function GET(req: Request, ctx: RouteContext) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const clubId = await resolveClubId(req, ctx);
 
   if (!clubId) {
     console.error('Safeguarding GET missing/invalid clubId', {
@@ -95,7 +95,7 @@ export async function GET(req: Request, ctx: RouteContext) {
 
 export async function POST(req: Request, ctx: RouteContext) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const clubId = await resolveClubId(req, ctx);
 
   if (!clubId) {
     return NextResponse.json(
@@ -222,7 +222,7 @@ export async function POST(req: Request, ctx: RouteContext) {
 // Simple reorder endpoint: body = { order: Array<{ id, sort_order }> }
 export async function PUT(req: Request, ctx: RouteContext) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const clubId = await resolveClubId(req, ctx);
 
   if (!clubId) {
     return NextResponse.json(

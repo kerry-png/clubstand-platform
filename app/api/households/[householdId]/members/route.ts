@@ -9,20 +9,15 @@ type RouteParams = {
 
 export async function POST(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params may be an object or a Promise
-  const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
-
-  const householdId = resolvedParams?.householdId;
+  // Next.js 16: params is a Promise
+  const { householdId } = await context.params;
 
   if (!householdId || householdId === 'undefined') {
-    console.error('Add member: missing householdId in params', resolvedParams);
+    console.error('Add member: missing householdId in params', { householdId });
     return NextResponse.json(
       { error: 'Missing household id in URL' },
       { status: 400 },

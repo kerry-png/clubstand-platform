@@ -11,17 +11,12 @@ type MemberStatus = Enums<"member_status">;
 
 export async function PUT(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params may be an object or a Promise
-  const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
-
-  const clubId = resolvedParams?.clubId;
+  // Next.js 16: params is a Promise
+  const { clubId } = await context.params;
 
   if (!clubId || clubId === "undefined") {
     return NextResponse.json(

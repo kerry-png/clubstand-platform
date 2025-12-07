@@ -5,8 +5,8 @@ import type { Tables } from "@/lib/database.types";
 
 type MemberRow = Tables<"members">;
 type SubscriptionRow = Tables<"membership_subscriptions">;
-type ConsentQuestionRow = Tables<"club_consent_questions">;
-type ConsentResponseRow = Tables<"member_consent_responses">;
+// type ConsentQuestionRow = Tables<"club_consent_questions">;
+// type ConsentResponseRow = Tables<"member_consent_responses">;
 
 export type YesNoUnknown = "yes" | "no" | "not_answered";
 
@@ -108,7 +108,7 @@ function normaliseYesNoFromResponse(raw: any): YesNoUnknown {
 export async function loadClubDashboardData(
   clubId: string,
 ): Promise<ClubDashboardStats> {
-  const supabase = supabaseServerClient();
+  const supabase = supabaseServerClient;
 
   const [membersRes, subsRes, questionsRes, responsesRes] = await Promise.all([
     supabase
@@ -138,9 +138,9 @@ export async function loadClubDashboardData(
   if (responsesRes.error) throw responsesRes.error;
 
   const members = (membersRes.data ?? []) as MemberRow[];
-  const subs = (subsRes.data ?? []) as SubscriptionRow[];
-  const questions = (questionsRes.data ?? []) as ConsentQuestionRow[];
-  const responses = (responsesRes.data ?? []) as ConsentResponseRow[];
+  const subs = (subsRes.data ?? []) as any[];
+  const questions = (questionsRes.data ?? []) as any[];
+  const responses = (responsesRes.data ?? []) as any[];
 
   const today = new Date();
   const seasonSept1 = getSeasonSept1(today);

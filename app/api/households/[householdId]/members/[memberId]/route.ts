@@ -9,22 +9,15 @@ type RouteParams = {
 
 export async function PATCH(
   req: Request,
-  context:
-    | { params: RouteParams }
-    | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params may be a Promise
-  const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
-
-  const { householdId, memberId } = resolvedParams || {};
+  // Next.js 16: params is a Promise
+  const { householdId, memberId } = await context.params;
 
   if (!householdId || !memberId) {
-    console.error('Edit member: missing ids', resolvedParams);
+    console.error('Edit member: missing ids', { householdId, memberId });
     return NextResponse.json(
       { error: 'Missing household or member id in URL' },
       { status: 400 },

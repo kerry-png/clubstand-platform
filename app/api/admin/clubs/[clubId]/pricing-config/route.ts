@@ -20,17 +20,12 @@ function parseMembershipYear(req: Request): number {
 // GET: fetch config for club + year
 export async function GET(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   try {
     const supabase = supabaseServerClient;
 
-    const rawParams: any = (context as any).params;
-    const resolvedParams: RouteParams = rawParams?.then
-      ? await rawParams
-      : rawParams;
-
-    const clubId = resolvedParams?.clubId;
+    const { clubId } = await context.params;
     if (!clubId || clubId === 'undefined') {
       return NextResponse.json(
         { error: 'Missing club id in URL' },
@@ -81,17 +76,12 @@ export async function GET(
 // PUT: upsert config for club + year
 export async function PUT(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   try {
     const supabase = supabaseServerClient;
 
-    const rawParams: any = (context as any).params;
-    const resolvedParams: RouteParams = rawParams?.then
-      ? await rawParams
-      : rawParams;
-
-    const clubId = resolvedParams?.clubId;
+    const { clubId } = await context.params;
     if (!clubId || clubId === 'undefined') {
       return NextResponse.json(
         { error: 'Missing club id in URL' },

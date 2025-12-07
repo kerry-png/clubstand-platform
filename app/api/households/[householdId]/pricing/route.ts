@@ -55,6 +55,7 @@ async function getClubPricingConfig(
     junior_max_age: data.junior_max_age,
     adult_min_age: data.adult_min_age,
     adult_bundle_min_age: data.adult_bundle_min_age,
+    pricing_model: data.pricing_model ?? 'rainhill2026',
     enable_adult_bundle: data.enable_adult_bundle,
     require_junior_for_adult_bundle:
       data.require_junior_for_adult_bundle,
@@ -76,17 +77,12 @@ async function getClubPricingConfig(
 
 export async function GET(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context: { params: Promise<RouteParams> },
 ) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params may be a plain object or a Promise
-  const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
-
-  const householdId = resolvedParams?.householdId;
+  // Next.js 16: params is a Promise
+  const { householdId } = await context.params;
 
   if (!householdId || householdId === 'undefined') {
     return NextResponse.json(
