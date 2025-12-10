@@ -1,7 +1,7 @@
 // app/layout.tsx
 import './globals.css';
 import type { ReactNode } from 'react';
-import NavBar from '@/components/NavBar';
+import AppShell from '@/components/AppShell';
 
 export const metadata = {
   title: 'ClubStand Membership Portal',
@@ -16,9 +16,8 @@ type RootLayoutProps = {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-slate-50 text-slate-900">
-        <NavBar />
-        <div className="max-w-6xl mx-auto px-4 py-6">{children}</div>
+      <body className="min-h-screen bg-slate-50">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

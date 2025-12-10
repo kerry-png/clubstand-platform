@@ -48,6 +48,13 @@ export default function SelfDetailsForm({
     setLoading(true);
 
     try {
+      // For this self-join flow we treat it as an adult / annual plan.
+      // Membership year: default to "next season" (same logic as stats fallback).
+      const now = new Date();
+      const defaultMembershipYear = now.getFullYear() + 1;
+      const membershipYear = defaultMembershipYear;
+      const billingPeriod: 'annual' = 'annual';
+
       // 1) Create household, member, and pending subscription
       const startRes = await fetch('/api/memberships/start', {
         method: 'POST',
@@ -56,6 +63,8 @@ export default function SelfDetailsForm({
           clubId,
           planId,
           userEmail: email,
+          billingPeriod,
+          membershipYear,
           member: {
             first_name: firstName.trim(),
             last_name: lastName.trim(),
@@ -163,25 +172,14 @@ export default function SelfDetailsForm({
             <option value="">Prefer not to say</option>
             <option value="female">Female</option>
             <option value="male">Male</option>
-            <option value="other">Other</option>
+            <option value="other">Other / non-binary</option>
           </select>
         </label>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
         <label className="block text-sm">
-          Email
-          <input
-            type="email"
-            disabled
-            className="mt-1 w-full border rounded px-3 py-2 text-sm bg-gray-100 text-gray-700"
-            value={email}
-            readOnly
-          />
-        </label>
-
-        <label className="block text-sm">
-          Phone (optional)
+          Contact phone (optional)
           <input
             type="tel"
             className="mt-1 w-full border rounded px-3 py-2 text-sm"
@@ -189,14 +187,31 @@ export default function SelfDetailsForm({
             onChange={(e) => setPhone(e.target.value)}
           />
         </label>
+
+        <label className="block text-sm">
+          Email
+          <input
+            type="email"
+            disabled
+            className="mt-1 w-full border rounded px-3 py-2 text-sm bg-gray-100 text-gray-600"
+            value={email}
+          />
+          <span className="block mt-1 text-xs text-gray-500">
+            This is the email you&apos;re signed in with.
+          </span>
+        </label>
       </div>
 
-      {formError && <p className="text-sm text-red-700">{formError}</p>}
+      {formError && (
+        <p className="text-sm text-red-600" role="alert">
+          {formError}
+        </p>
+      )}
 
       <button
         type="submit"
         disabled={loading}
-        className="px-4 py-2 rounded bg-[var(--club-primary)] text-white text-sm hover:brightness-90 disabled:opacity-60"
+        className="inline-flex items-center justify-center rounded-md bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-800 disabled:opacity-60"
       >
         {loading ? 'Starting membership…' : 'Continue'}
       </button>

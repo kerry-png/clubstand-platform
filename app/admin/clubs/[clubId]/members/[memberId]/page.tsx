@@ -1,37 +1,35 @@
 // app/admin/clubs/[clubId]/members/[memberId]/page.tsx
 
 import MemberAdminClient from "./MemberAdminClient";
+import { getCurrentAdminForClub } from "@/lib/admins";
+import { canManageMembers, canViewPayments } from "@/lib/permissions";
 
-type RouteParams = {
+type PageParams = {
   clubId: string;
   memberId: string;
 };
 
 type PageProps = {
-  params: Promise<RouteParams>;
+  params: Promise<PageParams> | PageParams;
 };
 
 export default async function MemberAdminPage({ params }: PageProps) {
-  // Same pattern as your other pages – params is a Promise
-  const resolvedParams = await params;
-  const { clubId, memberId } = resolvedParams;
+  // Next.js 16: params may be a Promise
+  const resolved = await (params as Promise<PageParams>);
+  const { clubId, memberId } = resolved;
 
-  if (!clubId || !memberId) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Member admin
-        </h1>
-        <p className="mt-4 text-sm text-red-600">
-          Missing club or member ID in the URL.
-        </p>
-      </div>
-    );
-  }
+  // Load admin row for this club
+  const admin = await getCurrentAdminForClub(null, clubId);
+
+  const canManage = canManageMembers(admin);
+  const canViewPay = canViewPayments(admin);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      <MemberAdminClient clubId={clubId} memberId={memberId} />
-    </div>
+    <MemberAdminClient
+      clubId={clubId}
+      memberId={memberId}
+      canManageMembers={canManage}
+      canViewPayments={canViewPay}
+    />
   );
 }

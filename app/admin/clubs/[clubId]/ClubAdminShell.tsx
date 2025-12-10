@@ -2,8 +2,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Theme = {
   clubId: string;
@@ -14,6 +16,33 @@ type Theme = {
   secondary: string;
 };
 
+// Minimal shape of the admin row we care about
+type AdminPermissions = {
+  is_super_admin: boolean;
+  can_view_dashboard: boolean;
+  can_view_juniors: boolean;
+  can_edit_juniors: boolean;
+  can_view_payments: boolean;
+  can_edit_payments: boolean;
+  can_manage_admins: boolean;
+  can_manage_members: boolean;
+  can_manage_safeguarding: boolean;
+  can_manage_plans: boolean;
+  can_manage_pricing: boolean;
+};
+
+type NavItem =
+  | {
+      type: "item";
+      href: string;
+      label: string;
+      key: "dashboard" | "juniors" | "payments" | "plans" | "admins";
+    }
+  | {
+      type: "section";
+      label: string;
+    };
+
 type Props = {
   children: ReactNode;
   theme: Theme;
@@ -22,84 +51,264 @@ type Props = {
 export default function ClubAdminShell({ children, theme }: Props) {
   const pathname = usePathname();
   const basePath = `/admin/clubs/${theme.clubId}`;
+  const year = new Date().getFullYear();
 
-  const navItems = [
-    { href: `${basePath}/dashboard`, label: "Dashboard" },
-    { href: `${basePath}/juniors`, label: "Juniors" },
-    { href: `${basePath}/plans`, label: "Plans & pricing" },
-    // We'll add Safeguarding, Finance, Members here later
+  const supabase = createClient();
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // -----------------------------------
+  // Load current admin permissions
+  // -----------------------------------
+  const [admin, setAdmin] = useState<AdminPermissions | null | undefined>(
+    undefined,
+  );
+  const [permError, setPermError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAdmin() {
+      setPermError(null);
+      setAdmin(undefined); // undefined = loading
+
+      try {
+        const res = await fetch(
+          `/api/admin/clubs/${theme.clubId}/current-admin`,
+          { cache: "no-store" },
+        );
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(
+            json?.error ||
+              `Failed to load admin permissions (status ${res.status})`,
+          );
+        }
+
+        const json = await res.json();
+        if (cancelled) return;
+
+        setAdmin(json.admin ?? null);
+
+        // Load currently signed-in user email
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (user?.email) setUserEmail(user.email);
+        });
+
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error("Failed to load admin permissions", err);
+          setPermError(
+            err?.message || "Failed to load admin permissions",
+          );
+          setAdmin(null);
+        }
+      }
+    }
+
+    loadAdmin();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [theme.clubId]);
+
+  // -----------------------------------
+  // Navigation model
+  // -----------------------------------
+  const navItems: NavItem[] = [
+    {
+      type: "item",
+      href: `${basePath}/dashboard`,
+      label: "Dashboard",
+      key: "dashboard",
+    },
+    {
+      type: "item",
+      href: `${basePath}/juniors`,
+      label: "Juniors",
+      key: "juniors",
+    },
+    {
+      type: "item",
+      href: `${basePath}/payments`,
+      label: "Payments",
+      key: "payments",
+    },
+    {
+      type: "item",
+      href: `${basePath}/plans`,
+      label: "Plans & pricing",
+      key: "plans",
+    },
+    {
+      type: "section",
+      label: "Settings",
+    },
+    {
+      type: "item",
+      href: `${basePath}/settings/admins`,
+      label: "Admins & roles",
+      key: "admins",
+    },
   ];
+
+  const initials = makeInitials(theme.clubName);
+
+  function canSeeNavItem(item: NavItem): boolean {
+    if (item.type === "section") return true;
+
+    // While permissions are loading, show everything to avoid a blink
+    if (admin === undefined) return true;
+
+    // If no admin row, be conservative: dashboard only
+    if (admin === null) {
+      return item.key === "dashboard";
+    }
+
+    if (admin.is_super_admin) return true;
+
+    switch (item.key) {
+      case "dashboard":
+        return admin.can_view_dashboard;
+      case "juniors":
+        return admin.can_view_juniors;
+      case "payments":
+        return admin.can_view_payments;
+      case "plans":
+        return admin.can_manage_plans;
+      case "admins":
+        return admin.can_manage_admins;
+      default:
+        return true;
+    }
+  }
+
+  const filteredNavItems = navItems.filter(canSeeNavItem);
 
   const isActive = (href: string) =>
     pathname === href || pathname?.startsWith(href + "/");
 
-  const initials = makeInitials(theme.clubName);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      // Match NavBar behaviour: sign out + hit /auth/logout + send home
+      await supabase.auth.signOut();
+      try {
+        await fetch("/auth/logout", { method: "POST" });
+      } catch {
+        // ignore
+      }
+      window.location.href = "/";
+    } catch (err) {
+      console.error("Error signing out", err);
+      setLoggingOut(false);
+    }
+  };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-slate-50">
       {/* SIDEBAR (desktop) */}
-      <aside className="hidden md:flex w-64 flex-col border-r border-slate-200 bg-white">
+      <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white/95 backdrop-blur md:flex">
         {/* Club header */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-100">
-          {theme.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={theme.logoUrl}
-              alt={theme.clubName}
-              className="h-9 w-9 rounded-full object-cover border border-slate-200"
-            />
-          ) : (
-            <div className="h-9 w-9 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">
-              {initials}
+        <div className="border-b border-slate-100 px-4 py-4">
+          <div className="flex items-center gap-3">
+            {theme.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={theme.logoUrl}
+                alt={theme.clubName}
+                className="h-10 w-10 rounded-full border border-slate-200 object-cover"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                {initials}
+              </div>
+            )}
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold text-slate-900">
+                {theme.clubName}
+              </span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-500">
+                Club admin · {theme.slug || "club"}
+              </span>
             </div>
-          )}
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-slate-900">
-              {theme.clubName}
-            </span>
-            <span className="text-[11px] text-slate-500">
-              Club admin · {theme.slug || "club"}
-            </span>
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-2 py-4 space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center rounded-md px-3 py-2 text-xs font-medium transition ${
-                isActive(item.href)
-                  ? "bg-slate-900 text-white"
-                  : "text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+        {/* Navigation + logout */}
+        <nav className="flex-1 space-y-1 px-2 py-4 text-sm">
+          {filteredNavItems.map((item, idx) => {
+            if (item.type === "section") {
+              return (
+                <div
+                  key={`section-${idx}`}
+                  className="mt-4 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
+                >
+                  {item.label}
+                </div>
+              );
+            }
+
+            const active = isActive(item.href);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center rounded-lg px-3 py-2 text-xs font-medium transition ${
+                  active
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+
+          {/* Signed-in user */}
+          {userEmail && (
+            <div className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-100">
+              Signed in as<br />
+              <span className="font-medium text-slate-700">{userEmail}</span>
+            </div>
+          )}
+
+          {/* Logout appears as another item under Settings */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="mt-1 flex w-full items-center rounded-lg px-3 py-5 text-left text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-60"
+          >
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
+
         </nav>
 
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-slate-100 text-[11px] text-slate-500">
+        {/* Sidebar footer */}
+        <div className="border-t border-slate-100 px-4 py-3 text-[11px] text-slate-500">
           Powered by ClubStand
         </div>
       </aside>
 
       {/* MAIN AREA */}
-      <div className="flex-1 flex flex-col">
-        {/* Mobile top bar */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white">
+      <div className="flex flex-1 flex-col">
+        {/* Mobile top bar (no ClubStand branding, just club + logout) */}
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
           <div className="flex items-center gap-2">
             {theme.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={theme.logoUrl}
                 alt={theme.clubName}
-                className="h-8 w-8 rounded-full object-cover border border-slate-200"
+                className="h-8 w-8 rounded-full border border-slate-200 object-cover"
               />
             ) : (
-              <div className="h-8 w-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-[11px] font-semibold">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white">
                 {initials}
               </div>
             )}
@@ -112,19 +321,38 @@ export default function ClubAdminShell({ children, theme }: Props) {
               </span>
             </div>
           </div>
-          {/* Simple link to dashboard on mobile; full mobile nav can come later */}
-          <Link
-            href={`${basePath}/dashboard`}
-            className="text-[11px] text-slate-600 underline"
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="text-[11px] text-slate-600 underline disabled:opacity-60"
           >
-            Dashboard
-          </Link>
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
         </header>
 
+        {permError && (
+          <div className="px-4 pt-3">
+            <p className="text-[11px] text-amber-700">
+              (Permissions could not be fully loaded – menu may not match
+              server rules.)
+            </p>
+          </div>
+        )}
+
         {/* Content */}
-        <main className="px-4 py-6 md:px-8 md:py-8 max-w-6xl mx-auto w-full">
+        <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8 md:py-8">
           {children}
         </main>
+
+        {/* Main footer (club-focused) */}
+        <footer className="border-t border-slate-200 bg-white/90">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-3 md:px-8">
+            <span className="text-[11px] text-slate-400">
+              © {year} {theme.clubName}
+            </span>
+          </div>
+        </footer>
       </div>
     </div>
   );

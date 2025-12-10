@@ -1,125 +1,158 @@
 // app/api/payments/checkout/route.ts
 
-import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
-import { supabaseServerClient } from '@/lib/supabaseServer';
-import Stripe from 'stripe';
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
+import { supabaseServerClient } from "@/lib/supabaseServer";
 
-export const runtime = 'nodejs';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const { householdId } = await req.json();
-
     if (!householdId) {
       return NextResponse.json(
-        { error: 'householdId is required' },
-        { status: 400 },
+        { error: "Missing householdId" },
+        { status: 400 }
       );
     }
 
-    const supabase = supabaseServerClient;
+    // Load household
+    const { data: household, error: householdErr } =
+      await supabaseServerClient
+        .from("households")
+        .select("id, club_id")
+        .eq("id", householdId)
+        .single();
 
-    // Fetch pending subs + joined plan info
-    const { data: subs, error } = await supabase
-      .from('membership_subscriptions')
-      .select(
+    if (householdErr || !household) {
+      return NextResponse.json(
+        { error: "Household not found" },
+        { status: 404 }
+      );
+    }
+
+    const clubId = household.club_id;
+
+    // Load pending subscriptions for this household
+    const { data: pendingSubs, error: pendingErr } =
+      await supabaseServerClient
+        .from("membership_subscriptions")
+        .select(
+          `
+          id,
+          plan_id,
+          membership_year,
+          amount_pennies,
+          discount_pennies,
+          plan:membership_plans (
+            id,
+            name,
+            stripe_price_id_annual
+          )
         `
-        id,
-        amount_pennies,
-        membership_plans (
-          billing_period,
-          stripe_price_id_annual,
-          stripe_price_id_monthly,
-          name,
-          slug
         )
-      `,
-      )
-      .eq('household_id', householdId)
-      .eq('status', 'pending');
+        .eq("household_id", householdId)
+        .eq("status", "pending");
 
-    if (error) {
-      console.error('Checkout: failed to load subscriptions', error);
+    if (pendingErr) {
+      console.error("Failed loading pending subs", pendingErr);
       return NextResponse.json(
-        { error: 'Failed to load subscriptions' },
-        { status: 500 },
+        { error: "Failed loading pending subscriptions" },
+        { status: 500 }
       );
     }
 
-    if (!subs || subs.length === 0) {
-      return NextResponse.json(
-        { error: 'No pending subscriptions' },
-        { status: 400 },
-      );
-    }
-
-    // Stripe line items with safety guard for missing prices
-    const missingPricePlans: string[] = [];
-    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
-
-    for (const sub of subs as any[]) {
-      const plan = sub.membership_plans;
-      if (!plan) {
-        throw new Error(
-          `Subscription ${sub.id} is missing membership plan for household ${householdId}`,
-        );
-      }
-
-      // Decide which Stripe price to use based on plan billing_period
-      let priceId: string | null = null;
-
-      if (plan.billing_period === 'monthly') {
-        priceId = plan.stripe_price_id_monthly;
-      } else {
-        // Treat 'annual' and 'one_off' as annual prices; fall back if needed
-        priceId =
-          plan.stripe_price_id_annual ?? plan.stripe_price_id_monthly;
-      }
-
-      if (!priceId) {
-        // Track plans that aren't ready for online payment
-        missingPricePlans.push(`${plan.name} (slug: ${plan.slug})`);
-        continue;
-      }
-
-      line_items.push({
-        price: priceId,
-        quantity: 1,
-      });
-    }
-
-    // If any plan in the basket has no Stripe price, bail with a clean error
-    if (missingPricePlans.length > 0) {
+    if (!pendingSubs || pendingSubs.length === 0) {
       return NextResponse.json(
         {
           error:
-            'Some membership plans are not configured for online payment yet.',
-          details:
-            'Please add Stripe price IDs for these plans before taking payment online.',
-          plans: missingPricePlans,
+            "No pending memberships were found to pay for. If this is unexpected, please contact the club.",
         },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
-    const origin =
-      req.headers.get('origin') ?? process.env.NEXT_PUBLIC_SITE_URL;
+    const subscriptionIds = pendingSubs.map((s) => s.id);
+    const membershipYear =
+      pendingSubs[0]?.membership_year ?? new Date().getFullYear();
+
+    // Group by Stripe price so we don't send the same price multiple times
+    type GroupedLineItem = {
+      price: string;
+      quantity: number;
+      name?: string | null;
+    };
+
+    const grouped: Record<string, GroupedLineItem> = {};
+
+    for (const sub of pendingSubs as any[]) {
+      // Supabase nested `plan: membership_plans (...)` can come back as an array,
+      // so normalise to a single row.
+      const planArray = sub.plan as any;
+      const planRow = Array.isArray(planArray) ? planArray[0] : planArray;
+
+      const priceId: string | undefined =
+        planRow?.stripe_price_id_annual ?? undefined;
+      const planName: string | null = planRow?.name ?? null;
+
+      if (!priceId) {
+        return NextResponse.json(
+          {
+            error: `Membership plan "${
+              planName ?? "Unknown"
+            }" is not fully configured for Stripe. Missing stripe_price_id_annual.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!grouped[priceId]) {
+        grouped[priceId] = {
+          price: priceId,
+          quantity: 1,
+          name: planName,
+        };
+      } else {
+        grouped[priceId].quantity += 1;
+      }
+    }
+
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] =
+      Object.values(grouped).map((item) => ({
+        price: item.price,
+        quantity: item.quantity,
+      }));
+
+    // Base URL for redirect
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
+    const successUrl = `${baseUrl}/membership/thank-you?household=${householdId}`;
+    const cancelUrl = `${baseUrl}/household/${householdId}?payment=cancelled`;
 
     const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
+      mode: "payment", // one-off charges, requires one-time prices
       line_items,
-      success_url: `${origin}/membership/thank-you?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/club/rainhill-cc/join?cancelled=1`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
         household_id: householdId,
-        subscription_ids: subs.map((s: any) => s.id).join(','),
+        club_id: clubId,
+        membership_year: String(membershipYear),
+        subscription_ids: JSON.stringify(subscriptionIds),
       },
     });
 
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
-    console.error('Checkout route error:', err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Checkout error:", err);
+    return NextResponse.json(
+      {
+        error:
+          err?.message ||
+          "Unexpected error preparing membership payment. Please try again.",
+      },
+      { status: 500 }
+    );
   }
 }

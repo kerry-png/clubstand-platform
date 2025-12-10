@@ -5,7 +5,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ProceedToPaymentButton from './ProceedToPaymentButton';
 import HouseholdPricingPreview from './HouseholdPricingPreview';
-import { RenewButton } from './RenewButton';
+import RemoveMemberButton from './RemoveMemberButton';
+
 
 type PageParams = {
   householdId: string;
@@ -33,11 +34,11 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
   const setupMode = setupRaw === '1';
 
-// 1) Load household
-const { data: household, error: householdError } = await supabase
-  .from('households')
-  .select(
-    `
+  // 1) Load household
+  const { data: household, error: householdError } = await supabase
+    .from('households')
+    .select(
+      `
       id,
       club_id,
       name,
@@ -49,21 +50,23 @@ const { data: household, error: householdError } = await supabase
       postcode,
       created_at
     `,
-  )
-  .eq('id', householdId)
-  .single();
+    )
+    .eq('id', householdId)
+    .single();
 
   if (householdError || !household) {
     console.error('Household load error', householdError);
-    return notFound();
+    notFound();
   }
 
-  // 2) Load members in this household
+  // 2) Load members
   const { data: members, error: membersError } = await supabase
-    .from('members')
+    .from("members")
     .select(
       `
         id,
+        club_id,
+        household_id,
         first_name,
         last_name,
         date_of_birth,
@@ -72,14 +75,15 @@ const { data: household, error: householdError } = await supabase
         created_at
       `,
     )
-    .eq('household_id', householdId)
-    .order('created_at', { ascending: true });
+    .eq("household_id", householdId)
+    .eq("club_id", household.club_id)
+    .order("created_at", { ascending: true });
 
   if (membersError) {
-    console.error('Members load error', membersError);
+    console.error("Members load error", membersError);
   }
 
-  // 3) Load subscriptions for this household with plan + member
+  // 3) Load subscriptions for this household
   const { data: subscriptions, error: subsError } = await supabase
     .from('membership_subscriptions')
     .select(
@@ -109,7 +113,7 @@ const { data: household, error: householdError } = await supabase
     console.error('Subscriptions load error', subsError);
   }
 
-  // --- Load pricing breakdown (bundle coverage etc.) ---
+  // Pricing breakdown (optional)
   let memberBreakdown: any[] = [];
 
   try {
@@ -131,15 +135,17 @@ const { data: household, error: householdError } = await supabase
     console.error('Failed to load pricing breakdown', err);
   }
 
+  // Count statuses
   const pendingCount =
     subscriptions?.filter((s: any) => s.status === 'pending').length ?? 0;
   const activeCount =
     subscriptions?.filter((s: any) => s.status === 'active').length ?? 0;
 
-  // 4) Load safeguarding questions + responses for this household
+  const hasPendingSubs = pendingCount > 0;
+
+  // 4) Load safeguarding
   const householdClubId = household.club_id;
 
-  // Load questions for this club
   const { data: safeguardingQuestions } = await supabase
     .from('club_consent_questions')
     .select('*')
@@ -147,13 +153,12 @@ const { data: household, error: householdError } = await supabase
     .eq('is_active', true)
     .order('sort_order', { ascending: true });
 
-  // Load all responses for this household
   const { data: safeguardingResponses } = await supabase
     .from('member_consent_responses')
     .select('*')
     .eq('household_id', householdId);
 
-  // Map memberId -> subscriptions for that member
+  // Map subscriptions per member
   const memberSubsMap = new Map<string, any[]>();
   (subscriptions ?? []).forEach((sub: any) => {
     const memId = sub.member?.id;
@@ -163,10 +168,9 @@ const { data: household, error: householdError } = await supabase
     memberSubsMap.set(memId, existing);
   });
 
-  // Safeguarding status helpers
+  // Safeguarding per member
   function safeguardingStatusForMember(memberId: string) {
     if (!safeguardingQuestions || safeguardingQuestions.length === 0) {
-      // No questions configured = treat as complete
       return { complete: true, missing: [] as string[] };
     }
 
@@ -176,17 +180,13 @@ const { data: household, error: householdError } = await supabase
     const missing: string[] = [];
 
     for (const q of safeguardingQuestions) {
-      // Only required questions count
       if (!q.required) continue;
 
-      // (Optional: later we can add applies_to logic for juniors/adults/parents)
       const hasAnswer = memberResponses.some(
-        (r: any) => r.question_id === q.id,
+        (r: any) => r.question_id === q.id && r.value !== null,
       );
 
-      if (!hasAnswer) {
-        missing.push(q.label);
-      }
+      if (!hasAnswer) missing.push(q.label);
     }
 
     return {
@@ -195,13 +195,11 @@ const { data: household, error: householdError } = await supabase
     };
   }
 
-  // Household-level flag: are ALL members complete?
+  // Household-level safeguarding
   let householdSafeguardingComplete = true;
   (members ?? []).forEach((m: any) => {
     const status = safeguardingStatusForMember(m.id);
-    if (!status.complete) {
-      householdSafeguardingComplete = false;
-    }
+    if (!status.complete) householdSafeguardingComplete = false;
   });
 
   const formatMemberType = (member: any) => {
@@ -212,11 +210,12 @@ const { data: household, error: householdError } = await supabase
         return 'Social / Supporter';
       case 'coach':
         return 'Coach';
+      case 'official':
+        return 'Club official';
       default:
-        return member.member_type ?? 'Member';
+        return 'Member';
     }
   };
-
 
   const formatAddress = () => {
     const parts = [
@@ -248,103 +247,230 @@ const { data: household, error: householdError } = await supabase
   };
 
   const householdHasAnySubs = (subscriptions ?? []).length > 0;
+  const memberCount = members?.length ?? 0;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-8">
+    <div className="mx-auto max-w-5xl space-y-8 px-4 py-6">
       {/* HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
+      <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
           <h1 className="text-2xl font-semibold text-slate-900">
-            {household.name || 'Household'}
+            {household.name || 'Your household'}
           </h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <p className="text-sm text-slate-600">
+            Step 1: add members. Step 2: complete consents.
+            Step 3: review membership and pay securely online.
+          </p>
+
+          <div className="space-y-1 text-xs text-slate-600">
+            <p>
+              Main contact:{' '}
+              <span className="font-medium">
+                {household.primary_email || 'Not set'}
+              </span>
+              {household.phone && (
+                <span className="ml-1">• {household.phone}</span>
+              )}
+            </p>
+            <p>
+              Address:{' '}
+              {formatAddress() ? (
+                <span>{formatAddress()}</span>
+              ) : (
+                <span className="italic text-slate-400">No address on file</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2 text-right text-xs text-slate-500">
+          <p>
             Household ID:{' '}
             <span className="font-mono">{household.id}</span>
           </p>
-          <p className="text-sm text-slate-600">
-            Address:{' '}
-            {formatAddress() || (
-              <span className="italic text-slate-400">
-                No address on file
-              </span>
-            )}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-2 justify-end">
-          <Link
-            href={`/household/${householdId}/add-member`}
-            className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-          >
-            Add member
-          </Link>
-          <RenewButton householdId={householdId} seasonYear={2026} />
-          
-          <ProceedToPaymentButton
-            householdId={householdId}
-            disabled={!householdSafeguardingComplete}
-          />
-        </div>
-      </div>
-
-      {/* HOUSEHOLD SUMMARY */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Household summary
-        </h2>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2 text-sm text-slate-700">
           <p>
-            Household created:{' '}
+            Created:{' '}
             {household.created_at
               ? new Date(household.created_at).toLocaleString()
               : 'Unknown'}
           </p>
           {setupMode && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
-              Setup mode: you’re viewing this household as an admin to
-              complete initial configuration.
+            <p className="inline-block rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+              Setup mode – admin preview
             </p>
           )}
         </div>
       </section>
 
-      {/* SAFEGUARDING & CONSENTS */}
+      {/* STEP 1 – MEMBERS */}
+      <section className="space-y-3">
+        <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Step 1 – Household members
+            </h2>
+            <p className="text-sm text-slate-600">
+              Add players, parents and other family members linked to this household.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {householdSafeguardingComplete ? (
+              <Link
+                href={`/household/${householdId}/add-member`}
+                className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+              >
+                Add member
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="inline-flex cursor-not-allowed items-center rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-400"
+              >
+                Add member (complete consents first)
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          {memberCount === 0 ? (
+            <p>
+              No members yet. Use <span className="font-medium">Add member</span> to get started.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {members?.map((m: any) => {
+                const membership = membershipSummaryForMember(m.id);
+
+                return (
+                  <li
+                    key={m.id}
+                    className="flex flex-col gap-2 rounded-md bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        {formatMemberType(m)}
+                        {m.gender ? ` • ${m.gender}` : ''}
+                        {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
+                      </div>
+
+                      {/* Pricing engine breakdown */}
+                      {memberBreakdown
+                        .filter((b) => b.memberId === m.id)
+                        .map((b) => (
+                          <div
+                            key={b.memberId}
+                            className="mt-1 space-x-1 text-xs"
+                          >
+                            {b.coveredByAdultBundle && (
+                              <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-800">
+                                Covered by adult bundle
+                              </span>
+                            )}
+
+                            {b.coveredByJuniorBundle && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-800">
+                                Covered by junior bundle
+                              </span>
+                            )}
+
+                            {!b.coveredByAdultBundle &&
+                              !b.coveredByJuniorBundle &&
+                              b.pricePennies > 0 && (
+                                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-800">
+                                  £{(b.pricePennies / 100).toFixed(0)}
+                                </span>
+                              )}
+                          </div>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {membership.status === 'active' && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800">
+                          Active – {membership.planName ?? 'Membership'}
+                        </span>
+                      )}
+                      {membership.status === 'pending' && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                          Pending – {membership.planName ?? 'Membership'}
+                        </span>
+                      )}
+                      {membership.status === 'none' && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                          No membership
+                        </span>
+                      )}
+
+                      <Link
+                        href={`/household/${householdId}/members/${m.id}/edit`}
+                        className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50"
+                      >
+                        Edit
+                      </Link>
+
+                      {/* Allow removal only if there is no membership yet */}
+                      <RemoveMemberButton
+                        householdId={householdId}
+                        memberId={m.id}
+                        disabled={membership.status !== 'none'}
+                      />
+                    </div>
+
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      {/* STEP 2 – SAFEGUARDING */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">
-          Safeguarding & consents
+          Step 2 – Safeguarding & consents
         </h2>
+        <p className="text-sm text-slate-600">
+          Complete the club's safeguarding, photo and medical consents.
+        </p>
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3 text-sm text-slate-700">
+        <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           {(members ?? []).map((m: any) => {
             const status = safeguardingStatusForMember(m.id);
 
             return (
               <div
                 key={m.id}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border rounded-md bg-white px-3 py-2"
+                className="flex flex-col gap-2 rounded-md bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <div className="font-medium text-sm">
+                  <div className="text-sm font-medium">
                     {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
                   </div>
-                  {!status.complete && (
-                    <p className="text-xs text-red-700 mt-1">
-                      Missing: {status.missing.join(', ')}
+                  {status.missing.length > 0 && (
+                    <p className="mt-1 text-xs text-amber-800">
+                      Missing:{' '}
+                      <span className="font-medium">
+                        {status.missing.join(', ')}
+                      </span>
                     </p>
                   )}
                   {status.complete && (
-                    <p className="text-xs text-green-700 mt-1">
-                      All safeguarding questions completed
+                    <p className="mt-1 text-xs text-green-700">
+                      All safeguarding questions completed.
                     </p>
                   )}
                 </div>
                 <Link
                   href={`/household/${householdId}/safeguarding?member=${m.id}`}
-                  className="px-2 py-1 rounded-md bg-slate-900 text-white text-xs hover:bg-slate-800"
+                  className="rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
                 >
-                  {status.complete
-                    ? 'View / update answers'
-                    : 'Complete now'}
+                  {status.complete ? 'View / update answers' : 'Complete now'}
                 </Link>
               </div>
             );
@@ -357,172 +483,109 @@ const { data: household, error: householdError } = await supabase
             </p>
           )}
         </div>
-
-        {!householdSafeguardingComplete && (
-          <p className="text-xs text-red-700">
-            All required safeguarding consents must be completed before you can
-            proceed to payment.
-          </p>
-        )}
       </section>
 
-
-      {/* MEMBERS SECTION */}
+      {/* STEP 3 – MEMBERSHIPS & PAYMENTS */}
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Members in this household
-          </h2>
-          {setupMode && (
-            <span className="text-xs rounded-full bg-amber-50 px-2 py-1 text-amber-700 border border-amber-200">
-              Setup mode
-            </span>
-          )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Step 3 – Membership & payments
+            </h2>
+            <p className="text-sm text-slate-600">
+              Once consents are complete, review the membership summary below
+              and proceed to secure payment online.
+            </p>
+          </div>
+          <div className="text-right text-xs text-slate-600">
+            <p>
+              Active memberships:{' '}
+              <span className="font-semibold">{activeCount}</span>
+            </p>
+            <p>
+              Pending memberships:{' '}
+              <span className="font-semibold">{pendingCount}</span>
+            </p>
+          </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <p className="text-sm text-slate-700">
-            This household currently has{' '}
-            <span className="font-semibold">{members?.length ?? 0}</span>{' '}
-            member{(members?.length ?? 0) === 1 ? '' : 's'}.
-          </p>
-
-          {members && members.length > 0 ? (
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          {householdHasAnySubs ? (
             <ul className="space-y-2">
-              {members.map((m) => {
-                const membership = membershipSummaryForMember(m.id);
-
-                return (
-                  <li
-                    key={m.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border rounded-md px-3 py-2 bg-white"
-                  >
-                    <div>
-                      <div className="font-medium text-sm">
-                        {`${m.first_name ?? ''} ${
-                          m.last_name ?? ''
-                        }`.trim()}
+              {(subscriptions ?? []).map((sub: any) => (
+                <li
+                  key={sub.id}
+                  className="flex flex-col gap-1 rounded-md bg-white px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <div className="font-medium">
+                      {sub.plan?.name ?? 'Membership'}
+                    </div>
+                    <div className="text-slate-600">
+                      {sub.member
+                        ? `For ${sub.member.first_name} ${sub.member.last_name}`
+                        : 'Household membership'}
+                    </div>
+                    <div className="text-slate-500">
+                      Year {sub.membership_year} • Created{' '}
+                      {new Date(sub.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm">
+                      £{(sub.amount_pennies / 100).toFixed(2)}
+                    </div>
+                    {sub.discount_pennies > 0 && (
+                      <div className="text-[11px] text-green-700">
+                        Includes discount £
+                        {(sub.discount_pennies / 100).toFixed(2)}
                       </div>
-                      <div className="text-xs text-gray-600">
-                        {formatMemberType(m)}
-                        {m.gender ? ` • ${m.gender}` : ''}
-                        {m.date_of_birth
-                          ? ` • DOB: ${m.date_of_birth}`
-                          : ''}
-
-                        {/* Pricing engine breakdown (bundle coverage etc.) */}
-                        {memberBreakdown
-                          .filter((b) => b.memberId === m.id)
-                          .map((b) => (
-                            <div
-                              key={b.memberId}
-                              className="mt-1 text-xs space-x-1"
-                            >
-                              {b.coveredByAdultBundle && (
-                                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800">
-                                  Covered by adult bundle
-                                </span>
-                              )}
-
-                              {b.coveredByJuniorBundle && (
-                                <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                                  Covered by junior bundle
-                                </span>
-                              )}
-
-                              {!b.coveredByAdultBundle &&
-                                !b.coveredByJuniorBundle &&
-                                b.pricePennies > 0 && (
-                                  <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
-                                    £{(b.pricePennies / 100).toFixed(0)}
-                                  </span>
-                                )}
-
-                              {b.type === 'none' &&
-                                b.pricePennies === 0 &&
-                                !b.coveredByAdultBundle &&
-                                !b.coveredByJuniorBundle && (
-                                  <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700">
-                                    No membership required
-                                  </span>
-                                )}
-                            </div>
-                          ))}
-                      </div>
-
-                      {membership.planName && (
-                        <div className="text-xs text-gray-600 mt-0.5">
-                          Membership: {membership.planName}
-                        </div>
+                    )}
+                    <div className="mt-1 text-[11px] uppercase tracking-wide">
+                      {sub.status === 'active' && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-green-800">
+                          ACTIVE
+                        </span>
+                      )}
+                      {sub.status === 'pending' && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                          PENDING
+                        </span>
+                      )}
+                      {sub.status === 'cancelled' && (
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-slate-700">
+                          CANCELLED
+                        </span>
                       )}
                     </div>
-
-                    <div className="flex flex-wrap gap-2 text-xs items-center">
-                      {membership.status === 'active' && (
-                        <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-800">
-                          Active membership
-                        </span>
-                      )}
-                      {membership.status === 'pending' && (
-                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                          Awaiting payment
-                        </span>
-                      )}
-                      {membership.status === 'none' && (
-                        <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
-                          No membership yet
-                        </span>
-                      )}
-
-                      <Link
-                        href={`/household/${householdId}/members/${m.id}/edit`}
-                        className="px-2 py-0.5 rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                      >
-                        Edit
-                      </Link>
-                    </div>
-                  </li>
-                );
-              })}
+                  </div>
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="text-sm text-slate-700">
-              There are no members yet in this household. Use the “Add
-              member” button above to get started.
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* MEMBERSHIPS & PAYMENTS SECTION */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">
-            Memberships & payments
-          </h2>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <p className="text-sm text-slate-700">
-            You have{' '}
-            <span className="font-semibold">{pendingCount}</span>{' '}
-            membership{pendingCount === 1 ? '' : 's'} awaiting payment.
-          </p>
-          <p className="text-sm text-slate-700">
-            <span className="font-semibold">{activeCount}</span>{' '}
-            membership{activeCount === 1 ? '' : 's'} are currently
-            active for this household.
-          </p>
-
-          {!householdHasAnySubs && (
-            <p className="text-xs text-slate-600">
-              Once you start a membership for any member in this
-              household, you’ll see the full history and payment status
-              here.
+              No memberships started yet. Once you’ve completed consents, you’ll
+              be able to review the total and pay online.
             </p>
           )}
 
+          {/* Pricing preview */}
           <HouseholdPricingPreview householdId={householdId} />
+
+          {!householdSafeguardingComplete && (
+            <p className="text-xs text-amber-700">
+              Complete safeguarding and consent for all members before paying
+              online.
+            </p>
+          )}
+
+          {/* PAYMENT BUTTON – now correctly placed under Step 3 */}
+          <div className="pt-2">
+            <ProceedToPaymentButton
+              householdId={householdId}
+              disabled={!householdSafeguardingComplete || !hasPendingSubs}
+            />
+          </div>
         </div>
       </section>
     </div>

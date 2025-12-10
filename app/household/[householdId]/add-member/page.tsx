@@ -1,8 +1,8 @@
 // app/household/[householdId]/add-member/page.tsx
 
-import { supabaseServerClient } from '@/lib/supabaseServer';
-import { notFound } from 'next/navigation';
-import AddMemberForm from './AddMemberForm';
+import { supabaseServerClient } from "@/lib/supabaseServer";
+import { notFound } from "next/navigation";
+import AddMemberForm from "./AddMemberForm";
 
 type PageParams = {
   householdId: string;
@@ -22,7 +22,7 @@ export default async function AddMemberPage(props: PageProps) {
 
   const householdId = resolvedParams.householdId;
 
-  if (!householdId || householdId === 'undefined') {
+  if (!householdId || householdId === "undefined") {
     return (
       <div className="max-w-xl mx-auto py-10 px-4">
         <h1 className="text-xl font-semibold mb-2">Household not available</h1>
@@ -35,37 +35,36 @@ export default async function AddMemberPage(props: PageProps) {
 
   // Work out requested member type from the query string (?type=player|supporter)
   const rawType = query?.type;
-  const normalised =
-    Array.isArray(rawType) ? rawType[0] : rawType;
-  const initialType =
-    normalised === 'supporter' ? 'supporter' : 'player';
+  const normalised = Array.isArray(rawType) ? rawType[0] : rawType;
+  const initialType = normalised === "supporter" ? "supporter" : "player";
 
-  // Load household so we know club_id
+  // Load household so we know club_id etc
   const { data: household, error } = await supabase
-    .from('households')
-    .select('id, club_id, name, primary_email')
-    .eq('id', householdId)
+    .from("households")
+    .select("id, club_id, name, primary_email")
+    .eq("id", householdId)
     .single();
 
   if (error || !household) {
-    console.error('Add-member household load error', error);
+    console.error("Add-member household load error", error);
     return notFound();
   }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
       <h1 className="text-2xl font-semibold">
-        {initialType === 'player'
-          ? 'Add a playing member'
-          : 'Add a social / supporter member'}
+        {initialType === "player"
+          ? "Add a playing member"
+          : "Add a social / supporter member"}
       </h1>
+
       <p className="text-sm text-gray-600">
-        This person will be linked to{' '}
+        This person will be linked to{" "}
         <span className="font-medium">
           {household.name || household.primary_email}
-        </span>{' '}
-        in your household. You&apos;ll be able to manage their memberships
-        from your household dashboard.
+        </span>{" "}
+        in your household. You&apos;ll be able to manage their memberships from
+        your household dashboard.
       </p>
 
       <AddMemberForm

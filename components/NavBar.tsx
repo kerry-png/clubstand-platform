@@ -103,7 +103,7 @@ export default function NavBar() {
                 onClick={handleLogout}
                 className="px-3 py-1.5 rounded-md bg-black text-white text-xs sm:text-sm"
               >
-                Log out
+                Log Out
               </button>
             </>
           ) : (
@@ -112,13 +112,13 @@ export default function NavBar() {
                 href="/login"
                 className="px-3 py-1.5 rounded-md border text-xs sm:text-sm"
               >
-                Log in
+                Log In
               </Link>
               <Link
                 href="/signup"
                 className="px-3 py-1.5 rounded-md bg-black text-white text-xs sm:text-sm"
               >
-                Sign up
+                Sign Up
               </Link>
             </>
           )}

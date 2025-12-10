@@ -122,9 +122,10 @@ export default function EditMemberForm({
 
       <div className="grid gap-3 md:grid-cols-2">
         <label className="block text-sm">
-          Date of birth (optional)
+          Date of birth
           <input
             type="date"
+            required
             className="mt-1 w-full border rounded px-3 py-2 text-sm"
             value={dob}
             onChange={(e) => setDob(e.target.value)}
@@ -141,8 +142,6 @@ export default function EditMemberForm({
             <option value="">Prefer not to say</option>
             <option value="female">Female</option>
             <option value="male">Male</option>
-            <option value="non-binary">Non-binary</option>
-            <option value="other">Other</option>
           </select>
         </label>
       </div>
@@ -155,9 +154,7 @@ export default function EditMemberForm({
           onChange={(e) => setMemberType(e.target.value as MemberType)}
         >
           <option value="player">Player</option>
-          <option value="supporter">Social / supporter</option>
-          <option value="coach">Coach</option>
-          <option value="member">Member</option>
+          <option value="supporter">Social</option>
         </select>
       </label>
 

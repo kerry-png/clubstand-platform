@@ -20,6 +20,7 @@ type MemberWithFlags = {
   age_on_1_september: number | null;
   age_band: string | null;
   is_junior: boolean;
+  is_playing: boolean;
   photo_consent: YesNoUnknown;
   medical_info: YesNoUnknown;
   has_active_membership: boolean;
@@ -31,6 +32,9 @@ type StatsResponse = {
   totals: {
     totalMembers: number;
     activeMembers: number;
+    inactiveMembers: number;
+    playingMembers: number;
+    nonPlayingMembers: number;
     male: number;
     female: number;
     other: number;
@@ -49,6 +53,8 @@ type StatsResponse = {
 type Props = {
   clubId: string;
   memberId: string;
+  canManageMembers: boolean;
+  canViewPayments: boolean;
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -61,7 +67,12 @@ const ALLOWED_STATUSES = [
   "banned",
 ] as const;
 
-export default function MemberAdminClient({ clubId, memberId }: Props) {
+export default function MemberAdminClient({
+  clubId,
+  memberId,
+  canManageMembers,
+  canViewPayments,
+}: Props) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [member, setMember] = useState<MemberWithFlags | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,7 +81,7 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
   const [statusSave, setStatusSave] = useState<SaveState>("idle");
   const [flagsSave, setFlagsSave] = useState<SaveState>("idle");
 
-  // For now we hard-code 2026 to match the rest of the dashboards
+  // For now we hard-code 2026 to match the dashboards
   const [seasonYear] = useState<number>(2026);
 
   useEffect(() => {
@@ -95,7 +106,6 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
         }
 
         const json = (await res.json()) as StatsResponse;
-
         if (cancelled) return;
 
         setStats(json);
@@ -136,7 +146,6 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
         `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
         { cache: "no-store" },
       );
-
       if (!res.ok) return;
 
       const json = (await res.json()) as StatsResponse;
@@ -160,6 +169,11 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
     if (!member) return;
     if (!ALLOWED_STATUSES.includes(newStatus as any)) return;
 
+    if (!canManageMembers) {
+      setError("You don't have permission to change member status.");
+      return;
+    }
+
     setStatusSave("saving");
     setError(null);
 
@@ -179,7 +193,8 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
       if (!res.ok) {
         const json = await res.json().catch(() => null);
         const msg =
-          json?.error ?? `Failed to update status (status ${res.status})`;
+          json?.error ??
+          `Failed to update status (status ${res.status})`;
         throw new Error(msg);
       }
 
@@ -199,6 +214,13 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
 
   const handleToggleFlag = async (flag: "county" | "district") => {
     if (!member) return;
+
+    if (!canManageMembers) {
+      setError(
+        "You don't have permission to update representative flags.",
+      );
+      return;
+    }
 
     const isCounty = member.is_county_player;
     const isDistrict = member.is_district_player;
@@ -287,18 +309,11 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
     return "No active membership on record";
   })();
 
-  // TODO: wire this to real role/permission check
-  const canViewPayments = true; // super admin + treasurer in future
+  const canViewPaymentsFlag = canViewPayments;
 
   if (loading) {
     return (
       <div className="space-y-4">
-        <a
-          href={`/admin/clubs/${clubId}/juniors`}
-          className="text-sm text-blue-700 hover:underline"
-        >
-          ← Back to juniors dashboard
-        </a>
         <p className="text-sm text-slate-600">Loading member…</p>
       </div>
     );
@@ -307,12 +322,6 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
   if (error) {
     return (
       <div className="space-y-4">
-        <a
-          href={`/admin/clubs/${clubId}/juniors`}
-          className="text-sm text-blue-700 hover:underline"
-        >
-          ← Back to juniors dashboard
-        </a>
         <p className="text-sm text-red-600">{error}</p>
       </div>
     );
@@ -321,12 +330,6 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
   if (!member) {
     return (
       <div className="space-y-4">
-        <a
-          href={`/admin/clubs/${clubId}/juniors`}
-          className="text-sm text-blue-700 hover:underline"
-        >
-          ← Back to juniors dashboard
-        </a>
         <p className="text-sm text-slate-600">
           Member not found for this club.
         </p>
@@ -336,13 +339,6 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
 
   return (
     <div className="space-y-6">
-      <a
-        href={`/admin/clubs/${clubId}/juniors`}
-        className="text-sm text-blue-700 hover:underline"
-      >
-        ← Back to juniors dashboard
-      </a>
-
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-slate-900">
           {fullName || "Unnamed member"}
@@ -374,7 +370,8 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
                 <select
                   value={member.status}
                   onChange={(e) => handleStatusChange(e.target.value)}
-                  className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  disabled={!canManageMembers}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   {ALLOWED_STATUSES.map((s) => (
                     <option key={s} value={s}>
@@ -383,7 +380,9 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
                   ))}
                 </select>
                 {statusSave === "saving" && (
-                  <span className="text-xs text-slate-500">Saving…</span>
+                  <span className="text-xs text-slate-500">
+                    Saving…
+                  </span>
                 )}
                 {statusSave === "saved" && (
                   <span className="text-xs text-green-600">Saved</span>
@@ -394,7 +393,7 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
               </div>
             </div>
 
-            {canViewPayments && (
+            {canViewPaymentsFlag && (
               <div>
                 <div className="text-xs font-medium text-slate-500">
                   Payment / subscription
@@ -402,59 +401,47 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
                 <p className="mt-1 text-sm text-slate-700">
                   {membershipSummary}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  (Detailed payment view to come – this section is for
-                  super admins & treasurers.)
-                </p>
               </div>
             )}
           </div>
         </section>
 
-        {/* Pathway & safeguarding */}
+        {/* Pathway & safeguarding mini-view */}
         <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900">
             Pathway & safeguarding
           </h2>
+
           <div className="mt-3 space-y-3 text-sm">
-            <div>
+            <div className="flex items-center justify-between">
               <div className="text-xs font-medium text-slate-500">
                 Representative cricket
               </div>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="space-x-2">
                 <button
                   type="button"
                   onClick={() => handleToggleFlag("county")}
-                  className={[
-                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border",
+                  disabled={!canManageMembers}
+                  className={`inline-flex items-center rounded-full border px-2 py-[2px] text-[11px] ${
                     member.is_county_player
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-700 border-slate-300",
-                  ].join(" ")}
+                      ? "border-purple-500 bg-purple-50 text-purple-700"
+                      : "border-slate-200 bg-slate-50 text-slate-600"
+                  } disabled:opacity-60`}
                 >
                   County
                 </button>
                 <button
                   type="button"
                   onClick={() => handleToggleFlag("district")}
-                  className={[
-                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border",
+                  disabled={!canManageMembers}
+                  className={`inline-flex items-center rounded-full border px-2 py-[2px] text-[11px] ${
                     member.is_district_player
-                      ? "bg-slate-700 text-white border-slate-700"
-                      : "bg-white text-slate-700 border-slate-300",
-                  ].join(" ")}
+                      ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                      : "border-slate-200 bg-slate-50 text-slate-600"
+                  } disabled:opacity-60`}
                 >
                   District
                 </button>
-                {flagsSave === "saving" && (
-                  <span className="text-xs text-slate-500">Saving…</span>
-                )}
-                {flagsSave === "saved" && (
-                  <span className="text-xs text-green-600">Saved</span>
-                )}
-                {flagsSave === "error" && (
-                  <span className="text-xs text-red-600">Error</span>
-                )}
               </div>
             </div>
 
@@ -464,10 +451,10 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
               </div>
               <p className="mt-1 text-sm text-slate-700">
                 {member.photo_consent === "yes"
-                  ? "Yes"
+                  ? "Yes – consent given"
                   : member.photo_consent === "no"
-                  ? "No – do not use this child in photos"
-                  : "Unknown / not answered"}
+                  ? "No – do not use images"
+                  : "Unknown / not recorded"}
               </p>
             </div>
 
@@ -477,13 +464,17 @@ export default function MemberAdminClient({ clubId, memberId }: Props) {
               </div>
               <p className="mt-1 text-sm text-slate-700">
                 {member.medical_info === "yes"
-                  ? "Medical information recorded"
+                  ? "Medical information on file"
                   : member.medical_info === "no"
                   ? "No medical information recorded"
-                  : "Unknown / not answered"}
+                  : "Unknown / not recorded"}
               </p>
             </div>
           </div>
+
+          {(statusSave === "error" || flagsSave === "error") && error && (
+            <p className="mt-3 text-xs text-red-600">{error}</p>
+          )}
         </section>
       </div>
     </div>

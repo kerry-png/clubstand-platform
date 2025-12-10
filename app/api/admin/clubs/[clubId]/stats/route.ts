@@ -4,7 +4,10 @@ import { NextResponse } from "next/server";
 import { supabaseServerClient } from "@/lib/supabaseServer";
 
 // Cricket rule: age on 1 September before the season
-function calculateAgeOnSept1(dob: string | null, seasonYear: number) {
+function calculateAgeOnSept1(
+  dob: string | null,
+  seasonYear: number,
+): number | null {
   if (!dob) return null;
   const birth = new Date(dob);
   if (isNaN(birth.getTime())) return null;
@@ -43,7 +46,7 @@ export async function GET(req: Request, context: RouteContext) {
   try {
     const supabase = supabaseServerClient;
 
-    // 🔑 Handle both plain-object and Promise-style params
+    // Handle both plain-object and Promise-style params (Next 16 quirk)
     const rawParams: any = (context as any).params;
     const resolvedParams =
       rawParams && typeof rawParams.then === "function"
@@ -66,13 +69,44 @@ export async function GET(req: Request, context: RouteContext) {
       );
     }
 
+    // -----------------------------
     // Determine season year
+    // -----------------------------
     const url = new URL(req.url);
-    const seasonYear =
-      Number(url.searchParams.get("year")) ||
-      new Date().getFullYear() + 1;
+    const yearParam = url.searchParams.get("year");
+    let seasonYear: number;
 
+    if (yearParam) {
+      seasonYear = Number(yearParam);
+    } else {
+      const { data: club, error: clubError } = await supabase
+        .from("clubs")
+        .select("active_season_year")
+        .eq("id", clubId)
+        .single();
+
+      if (clubError) {
+        console.error(
+          "Failed to load club for active_season_year",
+          clubError,
+        );
+        return NextResponse.json(
+          { error: "Failed to load club configuration" },
+          { status: 500 },
+        );
+      }
+
+      if (!club?.active_season_year) {
+        const now = new Date();
+        seasonYear = now.getFullYear() + 1;
+      } else {
+        seasonYear = club.active_season_year;
+      }
+    }
+
+    // -----------------------------
     // Load data
+    // -----------------------------
     const [membersRes, subsRes, questionsRes, responsesRes] =
       await Promise.all([
         supabase
@@ -110,17 +144,19 @@ export async function GET(req: Request, context: RouteContext) {
     const responses = responsesRes.data ?? [];
     const questions = questionsRes.data ?? [];
 
-    // Identify photo & medical question IDs
+    // -----------------------------
+    // Consent mapping (photo / medical)
+    // -----------------------------
     const photoIds = new Set<string>();
     const medicalIds = new Set<string>();
 
     for (const q of questions) {
       const l = (q.label ?? "").toLowerCase();
       if (l.includes("photo") || l.includes("image")) photoIds.add(q.id);
-      if (l.includes("medical") || l.includes("health")) medicalIds.add(q.id);
+      if (l.includes("medical") || l.includes("health"))
+        medicalIds.add(q.id);
     }
 
-    // Build consent map
     const photoMap = new Map<string, "yes" | "no" | "unknown">();
     const medicalMap = new Map<string, "yes" | "no" | "unknown">();
 
@@ -145,7 +181,9 @@ export async function GET(req: Request, context: RouteContext) {
       }
     }
 
+    // -----------------------------
     // Latest subscription per member
+    // -----------------------------
     const latestSub = new Map<
       string,
       {
@@ -176,11 +214,15 @@ export async function GET(req: Request, context: RouteContext) {
       }
     }
 
+    // -----------------------------
     // Transform members → MemberWithFlags shape
+    // -----------------------------
     const transformed = (members as any[]).map((m) => {
       const age = calculateAgeOnSept1(m.date_of_birth, seasonYear);
       const band = calculateAgeBand(age);
-      const isJunior = band !== null && m.member_type === "player";
+
+      const isPlaying = m.member_type === "player";
+      const isJunior = band !== null && isPlaying;
 
       const sub = latestSub.get(m.id as string);
 
@@ -198,6 +240,7 @@ export async function GET(req: Request, context: RouteContext) {
         age_on_1_september: age,
         age_band: band,
         is_junior: isJunior,
+        is_playing: isPlaying,
         photo_consent: photoMap.get(m.id) ?? "unknown",
         medical_info: medicalMap.get(m.id) ?? "unknown",
         has_active_membership: sub?.status === "active",
@@ -205,28 +248,56 @@ export async function GET(req: Request, context: RouteContext) {
       };
     });
 
-    const juniors = transformed.filter((m) => m.is_junior);
+    // -----------------------------
+    // Active vs inactive
+    // -----------------------------
+    const activeMembers = transformed.filter(
+      (m) => m.status !== "inactive",
+    );
+    const inactiveMembers = transformed.filter(
+      (m) => m.status === "inactive",
+    );
 
-    // Totals
+    const playingActive = activeMembers.filter((m) => m.is_playing);
+    const nonPlayingActive = activeMembers.filter(
+      (m) => !m.is_playing,
+    );
+    const juniors = activeMembers.filter((m) => m.is_junior);
+
+    // -----------------------------
+    // Totals (based on ACTIVE members only)
+    // -----------------------------
     const totals = {
-      totalMembers: transformed.length,
-      activeMembers: transformed.filter((m) => m.status === "active").length,
-      male: transformed.filter((m) => m.gender === "male").length,
-      female: transformed.filter((m) => m.gender === "female").length,
-      other: transformed.filter(
+      totalMembers: activeMembers.length,
+      inactiveMembers: inactiveMembers.length,
+      activeMembers: activeMembers.length,
+
+      playingMembers: playingActive.length,
+      nonPlayingMembers: nonPlayingActive.length,
+
+      male: activeMembers.filter((m) => m.gender === "male").length,
+      female: activeMembers.filter((m) => m.gender === "female").length,
+      other: activeMembers.filter(
         (m) => m.gender !== "male" && m.gender !== "female",
       ).length,
+
       juniors: juniors.length,
       juniorsMale: juniors.filter((m) => m.gender === "male").length,
-      juniorsFemale: juniors.filter((m) => m.gender === "female").length,
+      juniorsFemale: juniors.filter(
+        (m) => m.gender === "female",
+      ).length,
+
       countyPlayers: juniors.filter((m) => m.is_county_player).length,
-      districtPlayers: juniors.filter((m) => m.is_district_player).length,
+      districtPlayers: juniors.filter(
+        (m) => m.is_district_player,
+      ).length,
+
       juniorsNoPhotoConsent: juniors.filter(
         (m) => m.photo_consent !== "yes",
       ).length,
     };
 
-    // Age band counts
+    // Age band counts (active juniors only)
     const bandCounts: Record<string, number> = {};
     for (const j of juniors) {
       if (!j.age_band) continue;
@@ -237,13 +308,13 @@ export async function GET(req: Request, context: RouteContext) {
       seasonYear,
       totals,
       bandCounts,
-      members: transformed,
-      juniors,
+      members: transformed, // all members, including inactive
+      juniors,              // active juniors only
     });
   } catch (err: any) {
     console.error("Stats API error:", err);
     return NextResponse.json(
-      { error: err.message ?? "Failed to load stats" },
+      { error: err?.message ?? "Failed to load stats" },
       { status: 500 },
     );
   }

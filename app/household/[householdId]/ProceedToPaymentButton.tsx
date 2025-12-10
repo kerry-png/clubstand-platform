@@ -74,7 +74,7 @@ export default function ProceedToPaymentButton({
   type="button"
   onClick={handleClick}
   disabled={isDisabled}
-  className={`px-4 py-2 rounded text-sm ${
+  className={`px-4 py-2 rounded bg-black text-white text-sm ${
     isDisabled
       ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
       : 'bg-[var(--club-primary)] text-white hover:brightness-90'

@@ -1,8 +1,9 @@
 // app/admin/clubs/[clubId]/dashboard/ClubDashboardClient.tsx
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { canViewDashboard } from '@/lib/permissions';
+
 
 type YesNoUnknown = 'yes' | 'no' | 'unknown';
 
@@ -74,7 +75,6 @@ export default function ClubDashboardClient({ clubId }: Props) {
   const [data, setData] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seasonYear] = useState<number>(2026); // match pricing config for now
   const [activeFilters, setActiveFilters] = useState<
     Record<CardFilterKey, boolean>
   >({
@@ -98,6 +98,9 @@ export default function ClubDashboardClient({ clubId }: Props) {
     'band:U18': false,
   });
 
+    // TODO: when auth is wired, pass the real admin object here
+  const canViewDashboardFlag = canViewDashboard(null);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -106,10 +109,10 @@ export default function ClubDashboardClient({ clubId }: Props) {
       setError(null);
 
       try {
-        console.log('ClubDashboardClient loading', { clubId, seasonYear });
+        console.log('ClubDashboardClient loading', { clubId });
 
         const res = await fetch(
-          `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
+          `/api/admin/clubs/${clubId}/stats`,
           { cache: 'no-store' },
         );
 
@@ -148,8 +151,7 @@ export default function ClubDashboardClient({ clubId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [clubId, seasonYear]);
-
+  }, [clubId]);
 
   function toggleFilter(key: CardFilterKey) {
     setActiveFilters((prev: Record<CardFilterKey, boolean>) => ({
@@ -198,25 +200,14 @@ export default function ClubDashboardClient({ clubId }: Props) {
 
       // junior/adult filters
       if (activeFilters.junior && !m.is_junior) return false;
-      if (
-        activeFilters.adult &&
-        m.is_junior
-      )
-        return false;
+      if (activeFilters.adult && m.is_junior) return false;
 
       // county / district
       if (activeFilters.county && !m.is_county_player) return false;
-      if (
-        activeFilters.district &&
-        !m.is_district_player
-      )
-        return false;
+      if (activeFilters.district && !m.is_district_player) return false;
 
       // active membership
-      if (
-        activeFilters.activeMembership &&
-        !m.has_active_membership
-      ) {
+      if (activeFilters.activeMembership && !m.has_active_membership) {
         return false;
       }
 
@@ -240,6 +231,14 @@ export default function ClubDashboardClient({ clubId }: Props) {
     });
   }, [data, activeFilters, bandOrder]);
 
+    if (!canViewDashboardFlag) {
+    return (
+      <p className="text-sm text-slate-600">
+        You do not have permission to view this dashboard.
+      </p>
+    );
+  }
+  
   if (loading) {
     return (
       <p className="text-sm text-slate-600">
@@ -264,10 +263,21 @@ export default function ClubDashboardClient({ clubId }: Props) {
     );
   }
 
-  const { totals, bandCounts, members } = data;
+  const { totals, bandCounts, members, seasonYear } = data;
 
   return (
     <div className="space-y-6">
+      {/* Header summary */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+        <p className="text-sm text-slate-600">
+          Membership stats, junior breakdown, safeguarding flags and key
+          indicators for this club.
+        </p>
+        <p className="text-xs text-slate-500">
+          Season {seasonYear}
+        </p>
+      </div>
+
       {/* Top row: overall stats */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
@@ -345,19 +355,18 @@ export default function ClubDashboardClient({ clubId }: Props) {
         </button>
       </section>
 
-      {/* Row 2: junior bands + county/district + safeguarding */}
+      {/* Second row: age bands & pathway */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Junior bands */}
+        {/* Age bands */}
         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900">
-              Junior age bands (on 1 September)
+              Junior age bands (1 September)
             </h2>
             <span className="text-xs text-slate-500">
-              Click to filter list
+              Click to filter juniors
             </span>
           </div>
-
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {bandOrder.map((band) => {
               const key = `band:${band}` as CardFilterKey;
@@ -385,12 +394,12 @@ export default function ClubDashboardClient({ clubId }: Props) {
           </div>
         </div>
 
-        {/* County / district */}
+        {/* County / district / photo */}
         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
           <h2 className="text-sm font-semibold text-slate-900">
-            Performance pathway
+            Pathway & safeguarding
           </h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => toggleFilter('county')}
@@ -401,7 +410,7 @@ export default function ClubDashboardClient({ clubId }: Props) {
               }`}
             >
               <span className="text-xs uppercase tracking-wide opacity-70">
-                County
+                County players
               </span>
               <span className="mt-1 text-xl font-semibold">
                 {totals.countyPlayers}
@@ -418,25 +427,17 @@ export default function ClubDashboardClient({ clubId }: Props) {
               }`}
             >
               <span className="text-xs uppercase tracking-wide opacity-70">
-                District
+                District players
               </span>
               <span className="mt-1 text-xl font-semibold">
                 {totals.districtPlayers}
               </span>
             </button>
-          </div>
-        </div>
 
-        {/* Safeguarding / consents */}
-        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Safeguarding flags
-          </h2>
-          <div className="space-y-2">
             <button
               type="button"
               onClick={() => toggleFilter('noPhotoConsent')}
-              className={`flex w-full flex-col items-start rounded-md border px-3 py-2 text-left shadow-sm transition ${
+              className={`col-span-2 flex flex-col items-start rounded-md border px-3 py-2 text-left shadow-sm transition ${
                 activeFilters.noPhotoConsent
                   ? 'border-red-700 bg-red-700 text-white'
                   : 'border-red-100 bg-red-50 hover:bg-red-100 text-red-900'
@@ -451,6 +452,29 @@ export default function ClubDashboardClient({ clubId }: Props) {
             </button>
           </div>
         </div>
+
+        {/* Active membership quick filter */}
+        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Membership status
+          </h2>
+          <button
+            type="button"
+            onClick={() => toggleFilter('activeMembership')}
+            className={`flex flex-col items-start rounded-md border px-3 py-2 text-left shadow-sm transition ${
+              activeFilters.activeMembership
+                ? 'border-emerald-700 bg-emerald-700 text-white'
+                : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+            }`}
+          >
+            <span className="text-xs uppercase tracking-wide opacity-70">
+              Only show members with active membership
+            </span>
+            <span className="mt-1 text-xs opacity-80">
+              Uses current season membership subscriptions.
+            </span>
+          </button>
+        </div>
       </section>
 
       {/* Active filters summary */}
@@ -464,14 +488,12 @@ export default function ClubDashboardClient({ clubId }: Props) {
                 <button
                   key={key}
                   type="button"
-                  onClick={() =>
-                    toggleFilter(key as CardFilterKey)
-                  }
+                  onClick={() => toggleFilter(key as CardFilterKey)}
                   className="inline-flex items-center rounded-full bg-slate-900 text-white px-3 py-1"
                 >
                   <span>
                     {key
-                      .replace('band:', '')
+                      .replace('band:', 'Band ')
                       .replace('noPhotoConsent', 'No photo consent')
                       .replace('activeMembership', 'Active membership')}
                   </span>
@@ -509,7 +531,7 @@ export default function ClubDashboardClient({ clubId }: Props) {
           </div>
         ) : (
           <p className="text-xs text-slate-500">
-            Click any tile above to filter the members list.
+            Click any tile above to filter the members table.
           </p>
         )}
       </section>
@@ -518,7 +540,7 @@ export default function ClubDashboardClient({ clubId }: Props) {
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">
-            Members overview
+            Members
           </h2>
           <p className="text-xs text-slate-500">
             Showing {filteredMembers.length} of {members.length} members
@@ -533,10 +555,10 @@ export default function ClubDashboardClient({ clubId }: Props) {
                   Name
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  Type
+                  Gender
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">
-                  Gender
+                  Member type
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">
                   DOB
@@ -560,12 +582,8 @@ export default function ClubDashboardClient({ clubId }: Props) {
             </thead>
             <tbody>
               {filteredMembers.map((m) => {
-                const name = `${m.first_name ?? ''} ${
-                  m.last_name ?? ''
-                }`.trim();
-
+                const name = `${m.first_name ?? ''} ${m.last_name ?? ''}`.trim();
                 const band = m.age_band ?? '—';
-                const isAdult = !m.is_junior;
 
                 const photoBadge =
                   m.photo_consent === 'yes'
@@ -587,20 +605,18 @@ export default function ClubDashboardClient({ clubId }: Props) {
                     className="border-b border-slate-100 last:border-none"
                   >
                     <td className="px-3 py-2 align-top">
-                      <div className="font-medium text-slate-900">
+                      <a
+                        href={`/admin/clubs/${clubId}/members/${m.id}`}
+                        className="font-medium text-blue-600 underline hover:text-blue-800"
+                      >
                         {name || 'Unnamed member'}
-                      </div>
-                      <div className="text-slate-500">
-                        {m.status}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 align-top text-slate-700">
-                      {m.member_type}
-                      {isAdult && ' (adult)'}
-                      {m.is_junior && ' (junior)'}
+                      </a>
                     </td>
                     <td className="px-3 py-2 align-top text-slate-700">
                       {m.gender ?? '—'}
+                    </td>
+                    <td className="px-3 py-2 align-top text-slate-700">
+                      {m.is_junior ? 'Junior' : 'Adult'}
                     </td>
                     <td className="px-3 py-2 align-top text-slate-700">
                       {m.date_of_birth ?? '—'}
@@ -620,12 +636,11 @@ export default function ClubDashboardClient({ clubId }: Props) {
                             District
                           </span>
                         )}
-                        {!m.is_county_player &&
-                          !m.is_district_player && (
-                            <span className="text-[10px] text-slate-400">
-                              —
-                            </span>
-                          )}
+                        {!m.is_county_player && !m.is_district_player && (
+                          <span className="text-[10px] text-slate-400">
+                            —
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top">
@@ -656,22 +671,12 @@ export default function ClubDashboardClient({ clubId }: Props) {
                     </td>
                     <td className="px-3 py-2 align-top">
                       {m.has_active_membership ? (
-                        <div className="flex flex-col gap-1">
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
-                            Active
-                          </span>
-                          {m.latest_membership_start && (
-                            <span className="text-[10px] text-slate-500">
-                              since{' '}
-                              {new Date(
-                                m.latest_membership_start,
-                              ).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+                          Active
+                        </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-                          No active membership
+                          None
                         </span>
                       )}
                     </td>

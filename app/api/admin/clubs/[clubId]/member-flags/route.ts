@@ -1,17 +1,18 @@
-// app/api/admin/clubs/[clubId]/member-status/route.ts
+// app/api/admin/clubs/[clubId]/member-flags/route.ts
 import { NextResponse } from "next/server";
 import { supabaseServerClient } from "@/lib/supabaseServer";
-import type { Enums } from "@/lib/database.types";
+import { getCurrentAdminForClub } from "@/lib/admins";
+import { canManageMembers } from "@/lib/permissions";
 
 type RouteParams = {
   clubId: string;
 };
 
-type MemberStatus = Enums<"member_status">;
-
 export async function PUT(
   req: Request,
-  context: { params: RouteParams } | { params: Promise<RouteParams> },
+  context:
+    | { params: RouteParams }
+    | { params: Promise<RouteParams> },
 ) {
   const supabase = supabaseServerClient;
 
@@ -30,7 +31,21 @@ export async function PUT(
     );
   }
 
-  let body: { memberId: string; status: MemberStatus };
+  // 🔐 Permission check – must be able to manage members/pathway
+  const admin = await getCurrentAdminForClub(req, clubId);
+  if (!canManageMembers(admin)) {
+    return NextResponse.json(
+      { error: "Not authorised to update member flags" },
+      { status: 403 },
+    );
+  }
+
+  let body: {
+    memberId: string;
+    is_county_player?: boolean;
+    is_district_player?: boolean;
+  };
+
   try {
     body = await req.json();
   } catch {
@@ -40,84 +55,45 @@ export async function PUT(
     );
   }
 
-  const { memberId, status } = body;
+  const { memberId, is_county_player, is_district_player } = body;
 
-  if (!memberId || !status) {
+  if (!memberId) {
     return NextResponse.json(
-      { error: "memberId and status are required" },
+      { error: "memberId is required" },
       { status: 400 },
     );
   }
 
-  const allowed: MemberStatus[] = [
-    "active",
-    "inactive",
-    "prospect",
-    "lapsed",
-    "banned",
-  ];
+  const updateData: Record<string, boolean> = {};
+  if (typeof is_county_player === "boolean") {
+    updateData.is_county_player = is_county_player;
+  }
+  if (typeof is_district_player === "boolean") {
+    updateData.is_district_player = is_district_player;
+  }
 
-  if (!allowed.includes(status)) {
+  if (Object.keys(updateData).length === 0) {
     return NextResponse.json(
-      { error: "Invalid status value" },
+      { error: "No flags provided to update" },
       { status: 400 },
     );
   }
 
-  // 1) Load existing status so we can log the change
-  const { data: existing, error: fetchError } = await supabase
-    .from("members")
-    .select("status")
-    .eq("id", memberId)
-    .eq("club_id", clubId)
-    .maybeSingle();
-
-  if (fetchError) {
-    console.error("Failed to fetch existing member status", fetchError);
-    // We can still attempt the update, but old_value will be null
-  }
-
-  const oldStatus = existing?.status ?? null;
-
-  // 2) Update status
   const { error } = await supabase
     .from("members")
-    .update({ status })
+    .update(updateData)
     .eq("id", memberId)
     .eq("club_id", clubId);
 
   if (error) {
-    console.error("Failed to update member status", error);
+    console.error("Failed to update member flags", error);
     return NextResponse.json(
       {
-        error: "Failed to update member status",
+        error: "Failed to update member flags",
         details: error.message,
       },
       { status: 500 },
     );
-  }
-
-  // 3) Insert audit event if status actually changed
-  if (oldStatus !== status) {
-    const { error: auditError } = await supabase
-      .from("member_audit_events")
-      .insert({
-        club_id: clubId,
-        member_id: memberId,
-        category: "status",
-        field: "status",
-        old_value: oldStatus !== null ? { status: oldStatus } : null,
-        new_value: { status },
-        actor_user_id: null,          // TODO: wire up from auth context
-        actor_display_name: null,     // e.g. admin name
-        actor_role: null,             // e.g. "club_admin"
-        note: null,
-      });
-
-    if (auditError) {
-      console.error("Failed to insert member status audit event", auditError);
-      // We deliberately do NOT fail the request on audit error
-    }
   }
 
   return NextResponse.json({ ok: true });

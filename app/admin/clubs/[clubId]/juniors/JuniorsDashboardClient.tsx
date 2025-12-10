@@ -1,7 +1,10 @@
 // app/admin/clubs/[clubId]/juniors/JuniorsDashboardClient.tsx
 'use client';
 
+'use client';
+
 import { useEffect, useMemo, useState } from 'react';
+import { canViewJuniors } from '@/lib/permissions';
 
 type YesNoUnknown = 'yes' | 'no' | 'unknown';
 
@@ -70,10 +73,8 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
   const [data, setData] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seasonYear] = useState<number>(2026);
-  const [filters, setFilters] = useState<
-    Record<JuniorFilterKey, boolean>
-  >({
+
+  const [filters, setFilters] = useState<Record<JuniorFilterKey, boolean>>({
     male: false,
     female: false,
     county: false,
@@ -91,6 +92,14 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
     'band:U18': false,
   });
 
+  // Show only active juniors by default; allow including inactive
+  const [showInactive, setShowInactive] = useState(false);
+
+  // TODO: when auth is wired, pass the real admin object here
+  const canViewJuniorsFlag = canViewJuniors(null);
+
+
+
   useEffect(() => {
     let cancelled = false;
 
@@ -99,10 +108,10 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
       setError(null);
 
       try {
-        console.log('JuniorsDashboardClient loading', { clubId, seasonYear });
+        console.log('JuniorsDashboardClient loading', { clubId });
 
         const res = await fetch(
-          `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
+          `/api/admin/clubs/${clubId}/stats`,
           { cache: 'no-store' },
         );
 
@@ -122,9 +131,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
       } catch (err: any) {
         if (!cancelled) {
           console.error('JuniorsDashboardClient load error', err);
-          setError(
-            err?.message ?? 'Failed to load juniors stats',
-          );
+          setError(err?.message ?? 'Failed to load juniors stats');
         }
       } finally {
         if (!cancelled) {
@@ -138,8 +145,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [clubId, seasonYear]);
-
+  }, [clubId]);
 
   function toggleFilter(key: JuniorFilterKey) {
     setFilters((prev: Record<JuniorFilterKey, boolean>) => ({
@@ -163,15 +169,46 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
 
   const juniors = data?.juniors ?? [];
 
+  // Only count ACTIVE playing juniors in the band tiles
+const activeBandCounts = useMemo(() => {
+  const counts: Record<string, number> = {};
+
+  for (const j of juniors) {
+    if (!j.is_junior) continue;
+    if (j.status !== 'active') continue;
+
+    const band = j.age_band;
+    if (!band) continue;
+
+    counts[band] = (counts[band] ?? 0) + 1;
+  }
+
+  return counts;
+}, [juniors]);
+
   const filteredJuniors = useMemo(() => {
-    const genderSelected =
-      filters.male || filters.female;
+    const genderSelected = filters.male || filters.female;
     const bandSelected = bandOrder.some(
       (b) => filters[`band:${b}` as JuniorFilterKey],
     );
 
-    return juniors.filter((j) => {
+    // Sort juniors: surname then first name
+    const sorted = [...juniors].sort((a, b) => {
+      const lastA = (a.last_name ?? '').toLowerCase();
+      const lastB = (b.last_name ?? '').toLowerCase();
+      if (lastA && lastB && lastA !== lastB) {
+        return lastA.localeCompare(lastB);
+      }
+      const firstA = (a.first_name ?? '').toLowerCase();
+      const firstB = (b.first_name ?? '').toLowerCase();
+      return firstA.localeCompare(firstB);
+    });
+
+    return sorted.filter((j) => {
       if (!j.is_junior) return false;
+
+      // Only show active by default; allow opt-in to show inactive
+      if (!showInactive && j.status !== 'active') return false;
 
       if (genderSelected) {
         const g = (j.gender ?? '').toLowerCase();
@@ -188,10 +225,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
       if (filters.county && !j.is_county_player) return false;
       if (filters.district && !j.is_district_player) return false;
 
-      if (
-        filters.noPhotoConsent &&
-        j.photo_consent !== 'no'
-      ) {
+      if (filters.noPhotoConsent && j.photo_consent !== 'no') {
         return false;
       }
 
@@ -204,7 +238,21 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
 
       return true;
     });
-  }, [juniors, filters, bandOrder]);
+  }, [juniors, filters, bandOrder, showInactive]);
+
+  const totalActiveJuniors = useMemo(() => {
+    return juniors.filter(
+      (j) => j.is_junior && j.status === 'active',
+    ).length;
+  }, [juniors]);
+
+  if (!canViewJuniorsFlag) {
+    return (
+      <p className="text-sm text-slate-600">
+        You do not have permission to view juniors for this club.
+      </p>
+    );
+  }
 
   if (loading) {
     return (
@@ -213,6 +261,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
       </p>
     );
   }
+
 
   if (error) {
     return (
@@ -229,8 +278,6 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
       </p>
     );
   }
-
-  const bandCounts = data.bandCounts;
 
   return (
     <div className="space-y-6">
@@ -275,16 +322,16 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-slate-900">
-              Age bands (1 September)
+              Age Bands
             </h2>
-            <span className="text-xs text-slate-500">
-              Click to filter
-            </span>
+            <p className="text-xs text-slate-500">
+              as at 1st Sept - active players only
+            </p>
           </div>
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {bandOrder.map((band) => {
               const key = `band:${band}` as JuniorFilterKey;
-              const count = bandCounts[band] ?? 0;
+              const count = activeBandCounts[band] ?? 0;
               const active = filters[key];
 
               return (
@@ -368,9 +415,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
                 <button
                   key={key}
                   type="button"
-                  onClick={() =>
-                    toggleFilter(key as JuniorFilterKey)
-                  }
+                  onClick={() => toggleFilter(key as JuniorFilterKey)}
                   className="inline-flex items-center rounded-full bg-slate-900 text-white px-3 py-1"
                 >
                   <span>
@@ -416,13 +461,30 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
 
       {/* Juniors table */}
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">
-            Junior players
-          </h2>
-          <p className="text-xs text-slate-500">
-            Showing {filteredJuniors.length} of {juniors.length} juniors
-          </p>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Junior Players
+            </h2>
+            <p className="text-xs text-slate-500">
+              Sorted by surname, then first name.
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <p className="text-xs text-slate-500">
+              Showing {filteredJuniors.length} of{' '}
+              {showInactive ? juniors.length : totalActiveJuniors} juniors
+            </p>
+            <label className="flex items-center gap-1 text-xs text-slate-600">
+              <input
+                type="checkbox"
+                className="h-3 w-3"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+              />
+              Include inactive juniors
+            </label>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -442,6 +504,9 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
                   Age Band
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">
+                  Status
+                </th>
+                <th className="px-3 py-2 text-left font-semibold text-slate-700">
                   County / District
                 </th>
                 <th className="px-3 py-2 text-left font-semibold text-slate-700">
@@ -454,9 +519,7 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
             </thead>
             <tbody>
               {filteredJuniors.map((j) => {
-                const name = `${j.first_name ?? ''} ${
-                  j.last_name ?? ''
-                }`.trim();
+                const name = `${j.first_name ?? ''} ${j.last_name ?? ''}`.trim();
                 const band = j.age_band ?? '—';
 
                 const photoBadge =
@@ -472,6 +535,13 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
                     : j.medical_info === 'no'
                     ? 'None'
                     : 'Unknown';
+
+                const statusLabel =
+                  j.status === 'active'
+                    ? 'Active'
+                    : j.status === 'inactive'
+                    ? 'Inactive'
+                    : j.status ?? 'Unknown';
 
                 return (
                   <tr
@@ -495,6 +565,19 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
                     <td className="px-3 py-2 align-top text-slate-700">
                       {band}
                     </td>
+                    <td className="px-3 py-2 align-top">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          j.status === 'active'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : j.status === 'inactive'
+                            ? 'bg-slate-100 text-slate-700'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 align-top text-slate-700">
                       <div className="flex flex-col gap-1">
                         {j.is_county_player && (
@@ -507,12 +590,11 @@ export default function JuniorsDashboardClient({ clubId }: Props) {
                             District
                           </span>
                         )}
-                        {!j.is_county_player &&
-                          !j.is_district_player && (
-                            <span className="text-[10px] text-slate-400">
-                              —
-                            </span>
-                          )}
+                        {!j.is_county_player && !j.is_district_player && (
+                          <span className="text-[10px] text-slate-400">
+                            —
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top">

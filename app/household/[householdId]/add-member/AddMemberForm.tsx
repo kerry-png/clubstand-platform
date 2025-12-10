@@ -1,8 +1,9 @@
-'use client';
+// app/household/[householdId]/add-member/AddMemberForm.tsx
+"use client";
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from "react";
 
-type MemberType = 'player' | 'supporter';
+type MemberType = "player" | "supporter";
 
 type Props = {
   clubId: string;
@@ -13,17 +14,17 @@ type Props = {
 export default function AddMemberForm({
   clubId,
   householdId,
-  initialType = 'player',
+  initialType = "player",
 }: Props) {
-  const [memberType] = useState<MemberType>(initialType);
-  const isPlayer = memberType === 'player';
+  const [memberType, setMemberType] = useState<MemberType>(initialType);
+  const isPlayer = memberType === "player";
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [dob, setDob] = useState('');
-  const [gender, setGender] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [dob, setDob] = useState("");
+  const [gender, setGender] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,17 +36,17 @@ export default function AddMemberForm({
     setSuccess(null);
 
     if (!firstName.trim() || !lastName.trim()) {
-      setError('Please enter a first name and last name.');
+      setError("Please enter a first name and last name.");
       return;
     }
 
     if (isPlayer && !dob) {
-      setError('Please enter a date of birth for playing members.');
+      setError("Please enter a date of birth for playing members.");
       return;
     }
 
     if (!clubId || !householdId) {
-      setError('Missing club or household in the form. Please try again.');
+      setError("Missing club or household in the form. Please try again.");
       return;
     }
 
@@ -53,8 +54,8 @@ export default function AddMemberForm({
 
     try {
       const res = await fetch(`/api/households/${householdId}/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clubId,
           householdId,
@@ -81,27 +82,55 @@ export default function AddMemberForm({
         throw new Error(
           data?.error ||
             data?.details ||
-            'Failed to add family member. Please try again.',
+            "Failed to add family member. Please try again.",
         );
       }
 
-      setSuccess('Family member added successfully.');
+      setSuccess("Family member added successfully.");
+
       // Simple redirect back to household dashboard
       window.location.href = `/household/${householdId}`;
     } catch (err: any) {
-      console.error('Add member error', err);
-      setError(err.message || 'Unexpected error. Please try again.');
+      console.error("Add member error", err);
+      setError(err.message || "Unexpected error. Please try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 border rounded-lg p-4">
+    <form onSubmit={handleSubmit} className="space-y-4 border rounded-lg p-4 bg-white">
+      {/* Type toggle */}
+      <div className="space-y-1 text-sm">
+        <div className="font-medium">Member type</div>
+        <div className="flex flex-wrap gap-3">
+          <label className="inline-flex items-center gap-2 text-xs">
+            <input
+              type="radio"
+              name="memberType"
+              value="player"
+              checked={memberType === "player"}
+              onChange={() => setMemberType("player")}
+            />
+            Playing member (junior or adult)
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs">
+            <input
+              type="radio"
+              name="memberType"
+              value="supporter"
+              checked={memberType === "supporter"}
+              onChange={() => setMemberType("supporter")}
+            />
+            Social / supporter
+          </label>
+        </div>
+      </div>
+
       <p className="text-sm text-gray-700">
         {isPlayer
-          ? 'Add a playing member (junior or adult). The club will work out the correct membership based on age and their rules.'
-          : 'Add a social / non-playing member linked to your household.'}
+          ? "Add a playing member (junior or adult). The club will work out the correct membership based on age and their rules."
+          : "Add a social / non-playing member linked to your household."}
       </p>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -151,8 +180,6 @@ export default function AddMemberForm({
               <option value="">Prefer not to say</option>
               <option value="female">Female</option>
               <option value="male">Male</option>
-              <option value="non-binary">Non-binary</option>
-              <option value="other">Other</option>
             </select>
           </label>
         </div>
@@ -188,7 +215,7 @@ export default function AddMemberForm({
         disabled={submitting}
         className="px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-60"
       >
-        {submitting ? 'Saving…' : 'Save member'}
+        {submitting ? "Saving…" : "Save member"}
       </button>
     </form>
   );

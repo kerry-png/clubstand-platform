@@ -1,7 +1,7 @@
 // app/api/households/[householdId]/members/route.ts
 
-import { NextResponse } from 'next/server';
-import { supabaseServerClient } from '@/lib/supabaseServer';
+import { NextResponse } from "next/server";
+import { supabaseServerClient } from "@/lib/supabaseServer";
 
 type RouteParams = {
   householdId: string;
@@ -14,214 +14,105 @@ export async function POST(
   const supabase = supabaseServerClient;
 
   // Next 16: params may be an object or a Promise
-  const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
+  const rawParams = (context as any).params;
+  const resolvedParams: RouteParams =
+    rawParams && typeof (rawParams as any).then === "function"
+      ? await (rawParams as Promise<RouteParams>)
+      : (rawParams as RouteParams);
 
-  const householdId = resolvedParams?.householdId;
-
-  if (!householdId || householdId === 'undefined') {
-    console.error('Add member: missing householdId in params', resolvedParams);
-    return NextResponse.json(
-      { error: 'Missing household id in URL' },
-      { status: 400 },
-    );
-  }
+  const urlHouseholdId = resolvedParams?.householdId;
 
   let body: any;
   try {
     body = await req.json();
   } catch (err) {
-    console.error('Add member invalid JSON', err);
+    console.error("Invalid JSON in add-member", err);
     return NextResponse.json(
-      { error: 'Invalid request body' },
+      { error: "Invalid JSON in request body" },
       { status: 400 },
     );
   }
 
-  const { clubId, member } = body ?? {};
+  const clubId: string | undefined = body?.clubId;
+  const bodyHouseholdId: string | undefined = body?.householdId;
+  const member = body?.member ?? {};
 
-  if (!clubId) {
+  const householdId = bodyHouseholdId || urlHouseholdId;
+
+  const first_name = (member.first_name || "").trim();
+  const last_name = (member.last_name || "").trim();
+  const date_of_birth = member.date_of_birth || null;
+  const gender = member.gender ?? null;
+  const email = member.email ?? null;
+  const phone = member.phone ?? null;
+  const member_type = (member.member_type as string | undefined) || "player";
+
+  if (!clubId || !householdId) {
     return NextResponse.json(
-      { error: 'Missing clubId in request body' },
+      { error: "Missing clubId or householdId when adding member." },
       { status: 400 },
     );
   }
-
-  if (!member || typeof member !== 'object') {
-    return NextResponse.json(
-      { error: 'Missing member details in request body' },
-      { status: 400 },
-    );
-  }
-
-  const {
-    first_name,
-    last_name,
-    date_of_birth,
-    gender,
-    email,
-    phone,
-    member_type,
-  } = member;
 
   if (!first_name || !last_name) {
     return NextResponse.json(
-      { error: 'First name and last name are required' },
+      { error: "Missing required member name fields." },
       { status: 400 },
     );
   }
 
-  if (!member_type) {
+  const isPlayer = member_type === "player";
+
+  if (isPlayer && !date_of_birth) {
     return NextResponse.json(
-      { error: 'Member type is required (player or supporter)' },
+      { error: "Date of birth is required for playing members." },
       { status: 400 },
     );
   }
 
-  // 1) Create the member row
-  const { data: createdMember, error: memberError } = await supabase
-    .from('members')
-    .insert([
-      {
-        household_id: householdId,
+  try {
+    // 1) Create the member row
+    const { data: createdMember, error: memberError } = await supabase
+      .from("members")
+      .insert({
         club_id: clubId,
+        household_id: householdId,
         first_name,
         last_name,
-        date_of_birth: date_of_birth || null,
-        gender: gender || null,
-        email: email || null,
-        phone: phone || null,
-        member_type,
-      },
-    ])
-    .select('id, date_of_birth, member_type')
-    .single();
+        date_of_birth,
+        gender,
+        email,
+        phone,
+        member_type, // 'player' or 'supporter'
+      })
+      .select("id")
+      .single();
 
-  if (memberError || !createdMember) {
-    console.error('Add member insert error', memberError);
+    if (memberError || !createdMember) {
+      console.error("Create household member error", memberError);
+      return NextResponse.json(
+        { error: "Failed to add this family member." },
+        { status: 500 },
+      );
+    }
+
+    const memberId: string = createdMember.id;
+
+    // 2) We *could* trigger pricing recalculation here, but that's optional.
+    // For now, the household screen's "Recalculate pricing" button can do it.
+
     return NextResponse.json(
       {
-        error: 'Failed to add member',
-        details: memberError?.message,
-        code: memberError?.code,
+        success: true,
+        memberId,
       },
-      { status: 400 },
-    );
-  }
-
-  const memberId: string = createdMember.id;
-
-  // 2) Legacy auto-membership: try to attach a single pending sub
-  let createdSubscriptionId: string | null = null;
-
-  try {
-    if (member_type === 'player' || member_type === 'supporter') {
-      const { data: plans, error: plansError } = await supabase
-        .from('membership_plans')
-        .select(
-          `
-            id,
-            name,
-            slug,
-            price_pennies,
-            is_visible_online,
-            is_player_plan,
-            is_junior_only,
-            is_household_plan
-          `,
-        )
-        .eq('club_id', clubId)
-        .eq('is_visible_online', true);
-
-      if (!plansError && plans && plans.length > 0) {
-        const now = new Date();
-
-        const isJunior = (() => {
-          if (!createdMember.date_of_birth) return false;
-          const dob = new Date(createdMember.date_of_birth);
-          if (Number.isNaN(dob.getTime())) return false;
-          const ageMs = now.getTime() - dob.getTime();
-          const ageYears = ageMs / (1000 * 60 * 60 * 24 * 365.25);
-          return ageYears < 18;
-        })();
-
-        let chosenPlan: any | null = null;
-
-        if (member_type === 'player') {
-          if (isJunior) {
-            chosenPlan = plans.find(
-              (p: any) =>
-                p.is_player_plan &&
-                p.is_junior_only &&
-                !p.is_household_plan,
-            );
-          } else {
-            chosenPlan = plans.find(
-              (p: any) =>
-                p.is_player_plan &&
-                !p.is_junior_only &&
-                !p.is_household_plan,
-            );
-          }
-        } else if (member_type === 'supporter') {
-          chosenPlan = plans.find(
-            (p: any) => !p.is_player_plan && !p.is_household_plan,
-          );
-        }
-
-        if (chosenPlan) {
-          const { data: sub, error: subError } = await supabase
-            .from('membership_subscriptions')
-            .insert({
-              club_id: clubId,
-              plan_id: chosenPlan.id,
-              member_id: memberId,
-              household_id: householdId,
-              amount_pennies: chosenPlan.price_pennies,
-              status: 'pending',
-            })
-            .select('id')
-            .single();
-
-          if (!subError && sub) {
-            createdSubscriptionId = sub.id;
-          }
-        }
-      }
-    }
-  } catch (autoErr) {
-    console.error('Auto-membership: unexpected error', autoErr);
-  }
-
-  // 3) ALWAYS run pricing-engine-based recalc after adding a member
-  try {
-    const origin =
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      process.env.SITE_URL ??
-      'http://localhost:3000';
-
-    await fetch(
-      `${origin}/api/households/${householdId}/memberships/recalculate?year=2026`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-      },
+      { status: 200 },
     );
   } catch (err) {
-    console.error('Recalculate after add-member failed', err);
-    // non-fatal – member is created, we just haven’t updated pending subs
+    console.error("Unexpected error in add-member route", err);
+    return NextResponse.json(
+      { error: "Unexpected error when adding family member." },
+      { status: 500 },
+    );
   }
-
-  // 4) Return the new member + legacy subscription id if any
-  return NextResponse.json(
-    {
-      success: true,
-      memberId,
-      subscriptionId: createdSubscriptionId,
-    },
-    { status: 200 },
-  );
 }

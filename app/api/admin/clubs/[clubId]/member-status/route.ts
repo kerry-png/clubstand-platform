@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { supabaseServerClient } from "@/lib/supabaseServer";
 import type { Enums } from "@/lib/database.types";
+import { getCurrentAdminForClub } from "@/lib/admins";
+import { canManageMembers } from "@/lib/permissions";
 
 type RouteParams = {
   clubId: string;
@@ -27,6 +29,15 @@ export async function PUT(
     return NextResponse.json(
       { error: "Missing club id in URL" },
       { status: 400 },
+    );
+  }
+
+  // 🔐 Permission check – must be able to manage members
+  const admin = await getCurrentAdminForClub(req, clubId);
+  if (!canManageMembers(admin)) {
+    return NextResponse.json(
+      { error: "Not authorised to update member status" },
+      { status: 403 },
     );
   }
 

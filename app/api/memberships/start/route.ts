@@ -2,9 +2,6 @@
 
 import { NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
-import { stripe } from '@/lib/stripe';
-import Stripe from 'stripe';
-
 
 type StartPayload = {
   clubId: string;
@@ -63,7 +60,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 1) Ensure plan exists and get pricing + type + Stripe price IDs
+  // 1) Ensure plan exists and get pricing + type
   const { data: plan, error: planError } = await supabase
     .from('membership_plans')
     .select(
@@ -74,9 +71,7 @@ export async function POST(req: Request) {
       allow_annual,
       allow_monthly,
       annual_price_pennies,
-      monthly_price_pennies,
-      stripe_price_id_annual,
-      stripe_price_id_monthly
+      monthly_price_pennies
     `,
     )
     .eq('id', planId)
@@ -91,8 +86,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2) Decide which Stripe price + amount to use based on billingPeriod
-  let stripePriceId: string | null = null;
+  // 2) Decide amount_pennies based on billingPeriod
   let amountPennies: number | null = null;
 
   if (billingPeriod === 'annual') {
@@ -103,12 +97,10 @@ export async function POST(req: Request) {
       );
     }
 
-    stripePriceId = plan.stripe_price_id_annual;
-
     // For annual billing, use the dedicated annual price if set,
     // otherwise fall back to legacy price_pennies.
     amountPennies = plan.annual_price_pennies ?? plan.price_pennies ?? null;
-  } else {
+  } else if (billingPeriod === 'monthly') {
     if (!plan.allow_monthly) {
       return NextResponse.json(
         { error: 'Monthly billing is not enabled for this plan' },
@@ -116,40 +108,27 @@ export async function POST(req: Request) {
       );
     }
 
-    stripePriceId = plan.stripe_price_id_monthly;
-
-    // For monthly billing, we still store an annualised amount in the
-    // local membership_subscriptions row so reporting is consistent.
-    if (plan.annual_price_pennies != null) {
-      amountPennies = plan.annual_price_pennies;
-    } else if (plan.monthly_price_pennies != null) {
-      amountPennies = plan.monthly_price_pennies * 12;
-    } else {
-      amountPennies = plan.price_pennies ?? null;
-    }
+    // For monthly billing, use monthly_price_pennies if set,
+    // otherwise fall back to legacy price_pennies.
+    amountPennies = plan.monthly_price_pennies ?? plan.price_pennies ?? null;
   }
 
-  if (!stripePriceId) {
+  if (!amountPennies || amountPennies <= 0) {
+    console.error('Invalid amount_pennies resolved from plan', {
+      planId,
+      billingPeriod,
+      amountPennies,
+    });
     return NextResponse.json(
-      {
-        error:
-          'Stripe price ID not configured for this plan and billing period',
-      },
+      { error: 'Invalid membership price configuration' },
       { status: 400 },
     );
   }
 
-  if (amountPennies == null) {
-    return NextResponse.json(
-      { error: 'No pricing configured for this plan' },
-      { status: 400 },
-    );
-  }
+  // 3) Find or create household for this club + email
+  let householdId: string | null = null;
 
-  const priceForStripe: string = stripePriceId;
-
-  // 3) Try to find existing household for this club + email
-  const { data: existingHousehold, error: householdLookupError } =
+  const { data: existingHousehold, error: existingHouseholdError } =
     await supabase
       .from('households')
       .select('id')
@@ -157,14 +136,20 @@ export async function POST(req: Request) {
       .eq('primary_email', userEmail)
       .maybeSingle();
 
-  if (householdLookupError) {
-    console.error('Household lookup error', householdLookupError);
+  if (existingHouseholdError) {
+    console.error('Household lookup error', existingHouseholdError);
+    return NextResponse.json(
+      {
+        error: 'Failed to look up household',
+        details: existingHouseholdError.message,
+      },
+      { status: 500 },
+    );
   }
 
-  let householdId = existingHousehold?.id as string | undefined;
-
-  // 4) Create household if needed
-  if (!householdId) {
+  if (existingHousehold) {
+    householdId = existingHousehold.id;
+  } else {
     const { data: newHousehold, error: householdInsertError } =
       await supabase
         .from('households')
@@ -192,7 +177,7 @@ export async function POST(req: Request) {
     householdId = newHousehold.id;
   }
 
-  // 5) Create member
+  // 4) Create member linked to this household
   const { data: newMember, error: memberError } = await supabase
     .from('members')
     .insert({
@@ -221,7 +206,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 6) Create pending subscription (local record)
+  // 5) Create pending subscription (local record only – payment is via household checkout)
   const { data: sub, error: subError } = await supabase
     .from('membership_subscriptions')
     .insert({
@@ -248,7 +233,7 @@ export async function POST(req: Request) {
     );
   }
 
-  // 7) Non-fatal: assign member to default team if configured
+  // 6) Non-fatal: assign member to default team if configured
   try {
     await supabase.rpc('assign_member_to_default_team', {
       p_club_id: clubId,
@@ -259,38 +244,10 @@ export async function POST(req: Request) {
     console.error('assign_member_to_default_team error', rpcError);
   }
 
-  // 8) Create Stripe Checkout Session for this subscription
-  const origin =
-    req.headers.get('origin') ?? 'https://www.clubstand.co.uk';
-
-const session = await stripe.checkout.sessions.create(
-  {
-    mode: 'subscription',
-    line_items: [
-      {
-        price: priceForStripe,
-        quantity: 1,
-      },
-    ],
-    success_url: `${origin}/member/checkout/success?clubId=${clubId}&householdId=${householdId}&year=${membershipYear}`,
-    cancel_url: `${origin}/member/checkout/cancelled?clubId=${clubId}`,
-    metadata: {
-      club_id: String(clubId),
-      household_id: String(householdId),
-      membership_year: String(membershipYear),
-      membership_plan_id: String(planId),
-      billing_period: String(billingPeriod),
-      subscription_id: String(sub.id),
-      member_id: String(newMember.id),
-    } satisfies Stripe.Metadata,
-  } satisfies Stripe.Checkout.SessionCreateParams,
-);
-
-
+  // 7) Return identifiers for the client – NO Stripe checkout here
   return NextResponse.json({
     householdId,
     memberId: newMember.id,
     subscriptionId: sub.id,
-    checkoutUrl: session.url,
   });
 }
