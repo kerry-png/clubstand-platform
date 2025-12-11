@@ -1,99 +1,24 @@
 // app/reset-password/update/page.tsx
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-
-type Status = 'checking' | 'ready' | 'error';
 
 export default function ResetPasswordUpdatePage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [status, setStatus] = useState<Status>('checking');
-  const [statusMessage, setStatusMessage] = useState<string>(
-    'Checking your reset link…',
-  );
-  const [email, setEmail] = useState<string | null>(null);
-
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // On mount, just ask Supabase who the current user is.
-  // The password reset link should already have created a temporary session.
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      try {
-        setStatus('checking');
-        setStatusMessage('Checking your reset link…');
-        setError(null);
-
-        const { data, error } = await supabase.auth.getUser();
-
-        if (cancelled) return;
-
-        if (error) {
-          console.error('Error loading user during password reset', error);
-          const msg = error.message.toLowerCase();
-          if (msg.includes('session') || msg.includes('auth session missing')) {
-            setStatus('error');
-            setStatusMessage(
-              'This reset link is no longer valid. Please request a new one.',
-            );
-            setError('Your reset link has expired or is invalid.');
-          } else {
-            setStatus('error');
-            setStatusMessage(
-              'There was a problem validating your reset link. Please request a new one.',
-            );
-            setError(error.message);
-          }
-          return;
-        }
-
-        if (!data?.user) {
-          setStatus('error');
-          setStatusMessage(
-            'This reset link is no longer valid. Please request a new one.',
-          );
-          setError('No user session found for this reset link.');
-          return;
-        }
-
-        setEmail(data.user.email ?? null);
-        setStatus('ready');
-        setStatusMessage('');
-      } catch (err: any) {
-        if (cancelled) return;
-        console.error('Unexpected error initialising reset session', err);
-        setStatus('error');
-        setStatusMessage(
-          'There was a problem validating your reset link. Please request a new one.',
-        );
-        setError(err?.message ?? 'Unexpected error initialising reset session.');
-      }
-    }
-
-    init();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase]);
+  const [message, setMessage] = useState<string | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (status !== 'ready') {
-      setError('Your reset link has not been verified yet.');
-      return;
-    }
+    setMessage(null);
 
     if (!password || password.length < 8) {
       setError('Password must be at least 8 characters long.');
@@ -114,14 +39,22 @@ export default function ResetPasswordUpdatePage() {
 
       if (updateError) {
         console.error('Error updating password', updateError);
-        setError(
-          updateError.message ||
-            'There was a problem updating your password. Please try again.',
-        );
+
+        const msg = updateError.message.toLowerCase();
+        if (msg.includes('session') || msg.includes('auth session missing')) {
+          setError(
+            'This reset link is no longer valid. Please request a new password reset email.',
+          );
+        } else {
+          setError(
+            updateError.message ||
+              'There was a problem updating your password. Please try again.',
+          );
+        }
         return;
       }
 
-      setStatusMessage('Password updated successfully. Redirecting to sign in…');
+      setMessage('Password updated successfully. Redirecting to sign in…');
 
       setTimeout(() => {
         router.push('/login?reset=success');
@@ -137,31 +70,26 @@ export default function ResetPasswordUpdatePage() {
     }
   }
 
-  const disabled = status !== 'ready' || submitting;
-
   return (
     <main className="max-w-md mx-auto mt-10 bg-white rounded-lg shadow-sm p-6 space-y-6">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">Choose a new password</h1>
-        {status === 'checking' && (
-          <p className="text-sm text-slate-600">{statusMessage}</p>
-        )}
-        {status === 'error' && (
-          <p className="text-sm text-red-600">{statusMessage}</p>
-        )}
-        {status === 'ready' && (
-          <p className="text-sm text-slate-600">
-            {email
-              ? `Resetting password for ${email}.`
-              : 'Your reset link has been verified. Enter a new password below.'}
-          </p>
-        )}
+        <p className="text-sm text-slate-600">
+          Enter a new password for your account. If this link has expired, you
+          will see an error and can request a new reset email.
+        </p>
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {message}
           </div>
         )}
 
@@ -174,7 +102,7 @@ export default function ResetPasswordUpdatePage() {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            disabled={disabled}
+            disabled={submitting}
           />
         </div>
 
@@ -187,13 +115,13 @@ export default function ResetPasswordUpdatePage() {
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            disabled={disabled}
+            disabled={submitting}
           />
         </div>
 
         <button
           type="submit"
-          disabled={disabled}
+          disabled={submitting}
           className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           {submitting ? 'Updating password…' : 'Update password'}
