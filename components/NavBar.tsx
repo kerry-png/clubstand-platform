@@ -9,7 +9,17 @@ type User = {
   email?: string | null;
 };
 
-export default function NavBar() {
+type NavBarProps = {
+  branding?: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    logoUrl: string | null;
+  } | null;
+  club?: any | null;
+};
+
+export default function NavBar({ branding, club }: NavBarProps) {
   const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
   const [initialised, setInitialised] = useState(false);
@@ -17,7 +27,6 @@ export default function NavBar() {
   useEffect(() => {
     let isMounted = true;
 
-    // Get current user on first load
     supabase.auth
       .getUser()
       .then(({ data, error }) => {
@@ -30,7 +39,6 @@ export default function NavBar() {
         if (isMounted) setInitialised(true);
       });
 
-    // Listen for login / logout / token refresh
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -45,42 +53,84 @@ export default function NavBar() {
   }, [supabase]);
 
   const handleLogout = async () => {
-    // Sign out on the client so auth state updates immediately
     await supabase.auth.signOut();
-    // Also hit the server route to clear any server-side state / cookies
+
     try {
       await fetch('/auth/logout', { method: 'POST' });
     } catch {
-      // ignore
+      /* ignore */
     }
-    // Then send them home
+
     window.location.href = '/';
   };
+
+  // BRANDING LOGIC ----------------------------------------------
+
+  const logoUrl = branding?.logoUrl ?? null;
+
+  // If no logo → fallback initials from club short name or name
+  const fallbackInitials = (() => {
+    const text =
+      club?.short_name ??
+      club?.name ??
+      'CS';
+    return text
+      .split(/\s+/)
+      .map((w: string) => w[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+  })();
+
+  const primary = 'var(--brand-primary)';
+  const secondary = 'var(--brand-secondary)';
+  const accent = 'var(--brand-accent)';
 
   return (
     <header className="border-b bg-white">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-        {/* Left: brand / home */}
+
+        {/* LEFT SIDE — BRAND */}
         <div className="flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black text-white text-sm font-semibold">
-              CS
-            </span>
-            <span className="flex flex-col leading-tight">
-              <span className="font-semibold text-sm">
-                ClubStand Membership
+
+            {/* LOGO OR FALLBACK */}
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt="Club logo"
+                className="h-8 w-8 rounded-full object-cover"
+              />
+            ) : (
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white text-sm font-semibold"
+                style={{ background: primary }}
+              >
+                {fallbackInitials}
               </span>
+            )}
+
+            {/* TEXT LABELS (optional for now; can white-label fully later) */}
+            <span className="flex flex-col leading-tight">
+              <span
+                className="font-semibold text-sm"
+                style={{ color: primary }}
+              >
+                {club?.name ?? 'ClubStand Membership'}
+              </span>
+
               <span className="text-[11px] text-slate-500">
-                One portal for every club you run.
+                {club
+                  ? 'Powered by ClubStand'
+                  : 'One portal for every club you run.'}
               </span>
             </span>
           </Link>
         </div>
 
-        {/* Right: auth-aware links */}
+        {/* RIGHT SIDE — AUTH */}
         <nav className="flex items-center gap-3 text-sm">
           {!initialised ? (
-            // Tiny placeholder so things don't jump about; optional
             <span className="text-xs text-slate-400">Loading…</span>
           ) : user ? (
             <>
@@ -94,6 +144,7 @@ export default function NavBar() {
               <Link
                 href="/dashboard"
                 className="px-3 py-1.5 rounded-md border text-xs sm:text-sm"
+                style={{ borderColor: secondary }}
               >
                 Dashboard
               </Link>
@@ -101,7 +152,8 @@ export default function NavBar() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="px-3 py-1.5 rounded-md bg-black text-white text-xs sm:text-sm"
+                className="px-3 py-1.5 rounded-md text-white text-xs sm:text-sm"
+                style={{ background: primary }}
               >
                 Log Out
               </button>
@@ -111,12 +163,15 @@ export default function NavBar() {
               <Link
                 href="/login"
                 className="px-3 py-1.5 rounded-md border text-xs sm:text-sm"
+                style={{ borderColor: secondary }}
               >
                 Log In
               </Link>
+
               <Link
                 href="/signup"
-                className="px-3 py-1.5 rounded-md bg-black text-white text-xs sm:text-sm"
+                className="px-3 py-1.5 rounded-md text-white text-xs sm:text-sm"
+                style={{ background: primary }}
               >
                 Sign Up
               </Link>

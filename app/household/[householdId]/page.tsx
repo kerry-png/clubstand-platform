@@ -1,12 +1,10 @@
-// app/household/[householdId]/page.tsx
-
+//app/household/[household]/page.tsx
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ProceedToPaymentButton from './ProceedToPaymentButton';
 import HouseholdPricingPreview from './HouseholdPricingPreview';
 import RemoveMemberButton from './RemoveMemberButton';
-
 
 type PageParams = {
   householdId: string;
@@ -61,7 +59,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
   // 2) Load members
   const { data: members, error: membersError } = await supabase
-    .from("members")
+    .from('members')
     .select(
       `
         id,
@@ -75,12 +73,12 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         created_at
       `,
     )
-    .eq("household_id", householdId)
-    .eq("club_id", household.club_id)
-    .order("created_at", { ascending: true });
+    .eq('household_id', householdId)
+    .eq('club_id', household.club_id)
+    .order('created_at', { ascending: true });
 
   if (membersError) {
-    console.error("Members load error", membersError);
+    console.error('Members load error', membersError);
   }
 
   // 3) Load subscriptions for this household
@@ -135,7 +133,6 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     console.error('Failed to load pricing breakdown', err);
   }
 
-  // Count statuses
   const pendingCount =
     subscriptions?.filter((s: any) => s.status === 'pending').length ?? 0;
   const activeCount =
@@ -158,7 +155,6 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     .select('*')
     .eq('household_id', householdId);
 
-  // Map subscriptions per member
   const memberSubsMap = new Map<string, any[]>();
   (subscriptions ?? []).forEach((sub: any) => {
     const memId = sub.member?.id;
@@ -168,14 +164,14 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     memberSubsMap.set(memId, existing);
   });
 
-  // Safeguarding per member
   function safeguardingStatusForMember(memberId: string) {
     if (!safeguardingQuestions || safeguardingQuestions.length === 0) {
       return { complete: true, missing: [] as string[] };
     }
 
     const memberResponses =
-      safeguardingResponses?.filter((r: any) => r.member_id === memberId) ?? [];
+      safeguardingResponses?.filter((r: any) => r.member_id === memberId) ??
+      [];
 
     const missing: string[] = [];
 
@@ -195,7 +191,6 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     };
   }
 
-  // Household-level safeguarding
   let householdSafeguardingComplete = true;
   (members ?? []).forEach((m: any) => {
     const status = safeguardingStatusForMember(m.id);
@@ -254,7 +249,10 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       {/* HEADER */}
       <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold text-slate-900">
+          <h1
+            className="text-2xl font-semibold text-slate-900"
+            style={{ color: 'var(--brand-primary)' }}
+          >
             {household.name || 'Your household'}
           </h1>
           <p className="text-sm text-slate-600">
@@ -277,7 +275,9 @@ export default async function HouseholdDashboardPage(props: PageProps) {
               {formatAddress() ? (
                 <span>{formatAddress()}</span>
               ) : (
-                <span className="italic text-slate-400">No address on file</span>
+                <span className="italic text-slate-400">
+                  No address on file
+                </span>
               )}
             </p>
           </div>
@@ -306,11 +306,15 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       <section className="space-y-3">
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2
+              className="text-lg font-semibold text-slate-900"
+              style={{ color: 'var(--brand-primary)' }}
+            >
               Step 1 – Household members
             </h2>
             <p className="text-sm text-slate-600">
-              Add players, parents and other family members linked to this household.
+              Add players, parents and other family members linked to this
+              household.
             </p>
           </div>
 
@@ -337,7 +341,8 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           {memberCount === 0 ? (
             <p>
-              No members yet. Use <span className="font-medium">Add member</span> to get started.
+              No members yet. Use{' '}
+              <span className="font-medium">Add member</span> to get started.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -351,12 +356,16 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                   >
                     <div>
                       <div className="text-sm font-medium">
-                        {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
+                        {`${m.first_name ?? ''} ${
+                          m.last_name ?? ''
+                        }`.trim()}
                       </div>
                       <div className="text-xs text-slate-600">
                         {formatMemberType(m)}
                         {m.gender ? ` • ${m.gender}` : ''}
-                        {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
+                        {m.date_of_birth
+                          ? ` • DOB: ${m.date_of_birth}`
+                          : ''}
                       </div>
 
                       {/* Pricing engine breakdown */}
@@ -414,14 +423,12 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                         Edit
                       </Link>
 
-                      {/* Allow removal only if there is no membership yet */}
                       <RemoveMemberButton
                         householdId={householdId}
                         memberId={m.id}
                         disabled={membership.status !== 'none'}
                       />
                     </div>
-
                   </li>
                 );
               })}
@@ -432,11 +439,14 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
       {/* STEP 2 – SAFEGUARDING */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2
+          className="text-lg font-semibold text-slate-900"
+          style={{ color: 'var(--brand-primary)' }}
+        >
           Step 2 – Safeguarding & consents
         </h2>
         <p className="text-sm text-slate-600">
-          Complete the club's safeguarding, photo and medical consents.
+          Complete the club&apos;s safeguarding, photo and medical consents.
         </p>
 
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
@@ -450,7 +460,9 @@ export default async function HouseholdDashboardPage(props: PageProps) {
               >
                 <div>
                   <div className="text-sm font-medium">
-                    {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
+                    {`${m.first_name ?? ''} ${
+                      m.last_name ?? ''
+                    }`.trim()}
                   </div>
                   {status.missing.length > 0 && (
                     <p className="mt-1 text-xs text-amber-800">
@@ -468,7 +480,8 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                 </div>
                 <Link
                   href={`/household/${householdId}/safeguarding?member=${m.id}`}
-                  className="rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
+                  className="rounded-md px-2 py-1 text-xs text-white hover:opacity-90"
+                  style={{ background: 'var(--brand-primary)' }}
                 >
                   {status.complete ? 'View / update answers' : 'Complete now'}
                 </Link>
@@ -489,7 +502,10 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2
+              className="text-lg font-semibold text-slate-900"
+              style={{ color: 'var(--brand-primary)' }}
+            >
               Step 3 – Membership & payments
             </h2>
             <p className="text-sm text-slate-600">
@@ -569,7 +585,6 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             </p>
           )}
 
-          {/* Pricing preview */}
           <HouseholdPricingPreview householdId={householdId} />
 
           {!householdSafeguardingComplete && (
@@ -579,7 +594,6 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             </p>
           )}
 
-          {/* PAYMENT BUTTON – now correctly placed under Step 3 */}
           <div className="pt-2">
             <ProceedToPaymentButton
               householdId={householdId}

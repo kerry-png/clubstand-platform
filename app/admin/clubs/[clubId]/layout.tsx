@@ -1,8 +1,8 @@
-// app/admin/clubs/[clubId]/layout.tsx
-
+//app/admin/clubs/[clubId]/layout/tsx
 import type { ReactNode } from "react";
 import { supabaseServerClient } from "@/lib/supabaseServer";
 import ClubAdminShell from "./ClubAdminShell";
+import { buildBrandingFromClub } from "@/lib/branding/utils"; // NEW helper (see below)
 
 type LayoutParams = {
   clubId: string;
@@ -17,22 +17,26 @@ export default async function ClubAdminLayout({
   children,
   params,
 }: LayoutProps) {
-  // Next 16: params is a Promise
   const { clubId } = await params;
 
+  // Load the club by ID using service-role client
   const { data: club } = await supabaseServerClient
     .from("clubs")
-    .select("id, name, slug, logo_url, primary_colour, secondary_colour")
+    .select("*")
     .eq("id", clubId)
+    .eq("is_active", true)
     .maybeSingle();
+
+  // Fallback ensures admin can still load even if club null
+  const branding = buildBrandingFromClub(club);
 
   const theme = {
     clubId,
     clubName: club?.name ?? "Club",
     slug: club?.slug ?? "club",
-    logoUrl: club?.logo_url ?? null,
-    primary: club?.primary_colour ?? "#0f172a",
-    secondary: club?.secondary_colour ?? "#475569",
+    logoUrl: branding.logoUrl,
+    primary: branding.primary,
+    secondary: branding.secondary,
   };
 
   return <ClubAdminShell theme={theme}>{children}</ClubAdminShell>;
