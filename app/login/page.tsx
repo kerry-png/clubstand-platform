@@ -1,11 +1,11 @@
 // app/login/page.tsx
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
@@ -36,7 +36,9 @@ export default function LoginPage() {
       });
 
       if (signInError) {
-        setError(signInError.message || 'Unable to sign in. Please try again.');
+        setError(
+          signInError.message || 'Unable to sign in. Please try again.',
+        );
         setSubmitting(false);
         return;
       }
@@ -103,5 +105,13 @@ export default function LoginPage() {
         </button>
       </form>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
