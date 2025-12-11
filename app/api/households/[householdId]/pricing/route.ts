@@ -50,6 +50,7 @@ async function getClubPricingConfig(
   }
 
   const cfg: ClubPricingConfig = {
+    pricing_model: (data as any).pricing_model ?? 'bundled',
     cutoff_month: data.cutoff_month,
     cutoff_day: data.cutoff_day,
     junior_max_age: data.junior_max_age,
