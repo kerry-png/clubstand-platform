@@ -22,72 +22,54 @@ export default function ResetPasswordUpdatePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 1) On mount: read tokens from hash, create Supabase session, fetch user
+  // On mount, just ask Supabase who the current user is.
+  // The password reset link should already have created a temporary session.
   useEffect(() => {
-    async function initFromHash() {
+    let cancelled = false;
+
+    async function init() {
       try {
-        setError(null);
         setStatus('checking');
         setStatusMessage('Checking your reset link…');
+        setError(null);
 
-        const hash = window.location.hash.startsWith('#')
-          ? window.location.hash.slice(1)
-          : window.location.hash;
+        const { data, error } = await supabase.auth.getUser();
 
-        const params = new URLSearchParams(hash);
-        const access_token = params.get('access_token');
-        const refresh_token = params.get('refresh_token');
+        if (cancelled) return;
 
-        if (!access_token || !refresh_token) {
-          console.error(
-            'Missing access_token or refresh_token in reset-password URL hash',
-            hash,
-          );
-          setStatus('error');
-          setStatusMessage(
-            'This password reset link is invalid or has expired. Please request a new one.',
-          );
-          setError('Missing access token or refresh token in reset link.');
+        if (error) {
+          console.error('Error loading user during password reset', error);
+          const msg = error.message.toLowerCase();
+          if (msg.includes('session') || msg.includes('auth session missing')) {
+            setStatus('error');
+            setStatusMessage(
+              'This reset link is no longer valid. Please request a new one.',
+            );
+            setError('Your reset link has expired or is invalid.');
+          } else {
+            setStatus('error');
+            setStatusMessage(
+              'There was a problem validating your reset link. Please request a new one.',
+            );
+            setError(error.message);
+          }
           return;
         }
 
-        // Create a session from the tokens in the URL
-        const { error: sessionError } = await supabase.auth.setSession({
-          access_token,
-          refresh_token,
-        });
-
-        if (sessionError) {
-          console.error(
-            'Failed to set Supabase session from reset link',
-            sessionError,
-          );
+        if (!data?.user) {
           setStatus('error');
           setStatusMessage(
-            'There was a problem validating your reset link. Please request a new one.',
+            'This reset link is no longer valid. Please request a new one.',
           );
-          setError(sessionError.message);
+          setError('No user session found for this reset link.');
           return;
         }
 
-        // Now we should have a valid session – get the user (mainly for the email)
-        const { data: userData, error: userError } =
-          await supabase.auth.getUser();
-
-        if (userError || !userData?.user) {
-          console.error('Failed to load user for password reset', userError);
-          setStatus('error');
-          setStatusMessage(
-            'There was a problem validating your reset link. Please request a new one.',
-          );
-          setError(userError?.message ?? 'Could not load user from reset link.');
-          return;
-        }
-
-        setEmail(userData.user.email ?? null);
+        setEmail(data.user.email ?? null);
         setStatus('ready');
         setStatusMessage('');
       } catch (err: any) {
+        if (cancelled) return;
         console.error('Unexpected error initialising reset session', err);
         setStatus('error');
         setStatusMessage(
@@ -97,10 +79,13 @@ export default function ResetPasswordUpdatePage() {
       }
     }
 
-    initFromHash();
+    init();
+
+    return () => {
+      cancelled = true;
+    };
   }, [supabase]);
 
-  // 2) Handle submit: update the password for the current (recovery) session
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -121,6 +106,7 @@ export default function ResetPasswordUpdatePage() {
     }
 
     setSubmitting(true);
+
     try {
       const { error: updateError } = await supabase.auth.updateUser({
         password,
@@ -137,14 +123,14 @@ export default function ResetPasswordUpdatePage() {
 
       setStatusMessage('Password updated successfully. Redirecting to sign in…');
 
-      // Small delay so the user sees the success message, then send to login
       setTimeout(() => {
         router.push('/login?reset=success');
       }, 1500);
     } catch (err: any) {
       console.error('Unexpected error updating password', err);
       setError(
-        err?.message || 'There was a problem updating your password. Please try again.',
+        err?.message ||
+          'There was a problem updating your password. Please try again.',
       );
     } finally {
       setSubmitting(false);
