@@ -24,12 +24,12 @@ export default async function JoinPage({ params }: PageProps) {
   const supabase = await createClient();
 
   // 1) Require login
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect(`/login?redirectTo=/club/${slug}/join`);
-  }
+ // const {
+ //   data: { user },
+ // } = await supabase.auth.getUser();
+ // if (!user) {
+ //   redirect(`/login?redirectTo=/club/${slug}/join`);
+ // }
 
   // 2) Load club by slug
   const { data: clubRow, error: clubError } = await supabase
