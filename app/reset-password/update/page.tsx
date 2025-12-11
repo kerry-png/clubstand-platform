@@ -5,136 +5,177 @@ import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+type Status = 'checking' | 'ready' | 'error';
+
 export default function ResetPasswordUpdatePage() {
   const router = useRouter();
   const supabase = createClient();
 
+  const [status, setStatus] = useState<Status>('checking');
+  const [statusMessage, setStatusMessage] = useState<string>(
+    'Checking your reset link…',
+  );
+  const [email, setEmail] = useState<string | null>(null);
+
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
-  const [loadingUser, setLoadingUser] = useState(true);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [sessionValid, setSessionValid] = useState(true);
-
-  // On first load, let Supabase process the access_token in the hash
-  // and fetch the user associated with this recovery session.
+  // 1) On mount: read tokens from hash, create Supabase session, fetch user
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadUser() {
+    async function initFromHash() {
       try {
-        const { data, error } = await supabase.auth.getUser();
+        setError(null);
+        setStatus('checking');
+        setStatusMessage('Checking your reset link…');
 
-        if (error) {
-          console.error('Error loading user during password reset', error);
+        const hash = window.location.hash.startsWith('#')
+          ? window.location.hash.slice(1)
+          : window.location.hash;
 
-          const msg = error.message?.toLowerCase() ?? '';
+        const params = new URLSearchParams(hash);
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
 
-          if (msg.includes('session') || msg.includes('auth session missing')) {
-            if (!cancelled) setSessionValid(false);
-          } else {
-            if (!cancelled) setError(error.message);
-          }
-        } else if (data?.user) {
-          if (!cancelled) {
-            setUserEmail(data.user.email ?? null);
-            setSessionValid(true);
-          }
-        } else {
-          if (!cancelled) setSessionValid(false);
+        if (!access_token || !refresh_token) {
+          console.error(
+            'Missing access_token or refresh_token in reset-password URL hash',
+            hash,
+          );
+          setStatus('error');
+          setStatusMessage(
+            'This password reset link is invalid or has expired. Please request a new one.',
+          );
+          setError('Missing access token or refresh token in reset link.');
+          return;
         }
-      } finally {
-        if (!cancelled) setLoadingUser(false);
+
+        // Create a session from the tokens in the URL
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token,
+          refresh_token,
+        });
+
+        if (sessionError) {
+          console.error(
+            'Failed to set Supabase session from reset link',
+            sessionError,
+          );
+          setStatus('error');
+          setStatusMessage(
+            'There was a problem validating your reset link. Please request a new one.',
+          );
+          setError(sessionError.message);
+          return;
+        }
+
+        // Now we should have a valid session – get the user (mainly for the email)
+        const { data: userData, error: userError } =
+          await supabase.auth.getUser();
+
+        if (userError || !userData?.user) {
+          console.error('Failed to load user for password reset', userError);
+          setStatus('error');
+          setStatusMessage(
+            'There was a problem validating your reset link. Please request a new one.',
+          );
+          setError(userError?.message ?? 'Could not load user from reset link.');
+          return;
+        }
+
+        setEmail(userData.user.email ?? null);
+        setStatus('ready');
+        setStatusMessage('');
+      } catch (err: any) {
+        console.error('Unexpected error initialising reset session', err);
+        setStatus('error');
+        setStatusMessage(
+          'There was a problem validating your reset link. Please request a new one.',
+        );
+        setError(err?.message ?? 'Unexpected error initialising reset session.');
       }
     }
 
-    loadUser();
-
-    return () => {
-      cancelled = true;
-    };
+    initFromHash();
   }, [supabase]);
 
+  // 2) Handle submit: update the password for the current (recovery) session
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    setMessage(null);
 
-    if (!password || !confirm) {
-      setError('Please enter and confirm your new password.');
+    if (status !== 'ready') {
+      setError('Your reset link has not been verified yet.');
       return;
     }
 
-    if (password !== confirm) {
+    if (!password || password.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
       setError('Passwords do not match.');
       return;
     }
 
-    if (!sessionValid) {
-      setError('Your reset link is no longer valid. Please request a new one.');
-      return;
-    }
-
     setSubmitting(true);
-
     try {
       const { error: updateError } = await supabase.auth.updateUser({
         password,
       });
 
       if (updateError) {
+        console.error('Error updating password', updateError);
         setError(
           updateError.message ||
-            'We could not update your password. Please try again.',
+            'There was a problem updating your password. Please try again.',
         );
-      } else {
-        setMessage('Your password has been updated. You can now sign in.');
-        setTimeout(() => {
-          router.push('/login');
-        }, 1500);
+        return;
       }
+
+      setStatusMessage('Password updated successfully. Redirecting to sign in…');
+
+      // Small delay so the user sees the success message, then send to login
+      setTimeout(() => {
+        router.push('/login?reset=success');
+      }, 1500);
     } catch (err: any) {
-      setError(err?.message || 'Something went wrong. Please try again.');
+      console.error('Unexpected error updating password', err);
+      setError(
+        err?.message || 'There was a problem updating your password. Please try again.',
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
+  const disabled = status !== 'ready' || submitting;
+
   return (
     <main className="max-w-md mx-auto mt-10 bg-white rounded-lg shadow-sm p-6 space-y-6">
       <header className="space-y-1">
         <h1 className="text-xl font-semibold">Choose a new password</h1>
-        <p className="text-sm text-slate-600">
-          {userEmail
-            ? `Set a new password for ${userEmail}.`
-            : 'Enter a new password for your account.'}
-        </p>
+        {status === 'checking' && (
+          <p className="text-sm text-slate-600">{statusMessage}</p>
+        )}
+        {status === 'error' && (
+          <p className="text-sm text-red-600">{statusMessage}</p>
+        )}
+        {status === 'ready' && (
+          <p className="text-sm text-slate-600">
+            {email
+              ? `Resetting password for ${email}.`
+              : 'Your reset link has been verified. Enter a new password below.'}
+          </p>
+        )}
       </header>
-
-      {loadingUser && (
-        <p className="text-xs text-slate-500">Checking your reset link…</p>
-      )}
-
-      {!loadingUser && !sessionValid && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          This reset link is no longer valid. It may have expired or already
-          been used. Please go back to the sign-in page and request a new
-          password reset email.
-        </div>
-      )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
-          </div>
-        )}
-        {message && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            {message}
           </div>
         )}
 
@@ -144,11 +185,10 @@ export default function ResetPasswordUpdatePage() {
           </label>
           <input
             type="password"
-            autoComplete="new-password"
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            disabled={submitting || !sessionValid}
+            disabled={disabled}
           />
         </div>
 
@@ -158,17 +198,16 @@ export default function ResetPasswordUpdatePage() {
           </label>
           <input
             type="password"
-            autoComplete="new-password"
-            className="w-full rounded-md border px-3 py-2 text-sm"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            disabled={submitting || !sessionValid}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            disabled={disabled}
           />
         </div>
 
         <button
           type="submit"
-          disabled={submitting || !sessionValid}
+          disabled={disabled}
           className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
           {submitting ? 'Updating password…' : 'Update password'}
