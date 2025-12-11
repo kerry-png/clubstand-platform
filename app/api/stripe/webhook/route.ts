@@ -2,165 +2,165 @@
 
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { stripe } from '@/lib/stripe';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export async function POST(req: Request) {
+  const supabase = supabaseServerClient;
+
   if (!webhookSecret) {
-    console.error('❌ Missing STRIPE_WEBHOOK_SECRET');
-    return new NextResponse('Webhook not configured', { status: 500 });
+    console.error('Missing STRIPE_WEBHOOK_SECRET');
+    return NextResponse.json(
+      { error: 'Webhook not configured' },
+      { status: 500 },
+    );
+  }
+
+  const sig = req.headers.get('stripe-signature');
+  if (!sig) {
+    console.error('Missing stripe-signature header');
+    return NextResponse.json(
+      { error: 'Missing stripe-signature' },
+      { status: 400 },
+    );
   }
 
   let event: Stripe.Event;
 
   try {
     const rawBody = await req.text();
-    const signature = req.headers.get('stripe-signature');
-
-    if (!signature) {
-      console.error('❌ Missing stripe-signature header');
-      return new NextResponse('Missing signature', { status: 400 });
-    }
-
-    event = stripe.webhooks.constructEvent(
+    event = await stripe.webhooks.constructEventAsync(
       rawBody,
-      signature,
+      sig,
       webhookSecret,
     );
-  } catch (err: any) {
-    console.error('❌ Webhook signature verification failed', err);
-    return new NextResponse(`Webhook signature error: ${err.message}`, {
-      status: 400,
-    });
-  }
-
-  // We only care about checkout.session.completed for membership payments
-  if (event.type !== 'checkout.session.completed') {
-    return NextResponse.json({ received: true });
-  }
-
-  const session = event.data.object as Stripe.Checkout.Session;
-  const metadata = session.metadata || {};
-
-  const householdId = metadata.household_id || null;
-  const clubId = metadata.club_id || null;
-  const membershipYear = metadata.membership_year || null;
-
-  // Parse subscription IDs from metadata
-  let subscriptionIds: string[] = [];
-  try {
-    subscriptionIds = JSON.parse(
-      metadata.subscription_ids || '[]',
-    ) as string[];
   } catch (err) {
-    console.error(
-      '⚠ Failed to parse subscription_ids from metadata',
-      err,
-      metadata.subscription_ids,
+    console.error('Stripe webhook signature verification failed', err);
+    return NextResponse.json(
+      { error: 'Invalid Stripe signature' },
+      { status: 400 },
     );
   }
-
-  if (!subscriptionIds.length) {
-    console.warn(
-      '⚠ checkout.session.completed without subscription_ids – nothing to activate',
-    );
-    return NextResponse.json({ received: true });
-  }
-
-  const amountPaidPennies =
-    session.amount_total !== null && session.amount_total !== undefined
-      ? session.amount_total
-      : 0;
-
-  const paymentIntentId = session.payment_intent
-    ? String(session.payment_intent)
-    : null;
-
-  const supabase = supabaseServerClient;
 
   try {
-    // 1) Activate membership_subscriptions
-    for (const subId of subscriptionIds) {
-      const { data: existing, error: existingErr } = await supabase
-        .from('membership_subscriptions')
-        .select('id, status')
-        .eq('id', subId)
-        .maybeSingle();
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const metadata = session.metadata || {};
 
-      if (existingErr) {
-        console.error(
-          '❌ Webhook – failed to load subscription',
-          subId,
-          existingErr,
-        );
-        continue;
-      }
+        const clubId = metadata.club_id || null;
+        const householdId = metadata.household_id || null;
+        const membershipYearStr = metadata.membership_year || null;
 
-      if (!existing) {
-        console.warn(
-          '⚠ Webhook – subscription not found for id',
-          subId,
-        );
-        continue;
-      }
+        let membershipYear: number | null = null;
+        if (membershipYearStr) {
+          const parsed = Number(membershipYearStr);
+          membershipYear = Number.isFinite(parsed) ? parsed : null;
+        }
 
-      if (existing.status === 'active') {
+        // subscription_ids is stored as a JSON string of an array
+        // e.g. '["id1","id2","id3"]'
+        let subscriptionIds: string[] = [];
+
+        const rawSubIds =
+          metadata.subscription_ids || metadata.subscription_id || null;
+
+        if (rawSubIds) {
+          try {
+            const parsed = JSON.parse(rawSubIds);
+            if (Array.isArray(parsed)) {
+              subscriptionIds = parsed.map((x) => String(x));
+            } else {
+              subscriptionIds = [String(parsed)];
+            }
+          } catch (_err) {
+            // Not valid JSON, treat as a single id
+            subscriptionIds = [String(rawSubIds)];
+          }
+        }
+
+        if (!subscriptionIds.length) {
+          console.warn(
+            'checkout.session.completed webhook without subscription_ids metadata',
+            {
+              clubId,
+              householdId,
+              membershipYear,
+              sessionId: session.id,
+            },
+          );
+          break; // nothing to update, but still return 200 at the end
+        }
+
         console.log(
-          `ℹ Webhook – subscription ${subId} already active, skipping`,
+          'Updating membership_subscriptions to active from webhook',
+          {
+            subscriptionIds,
+            clubId,
+            householdId,
+            membershipYear,
+            sessionId: session.id,
+          },
         );
-        continue;
-      }
 
-      const { error: updateErr } = await supabase
-        .from('membership_subscriptions')
-        .update({
+        const updates: Record<string, any> = {
           status: 'active',
-          start_date: new Date().toISOString().slice(0, 10),
-          stripe_subscription_id: paymentIntentId,
-        })
-        .eq('id', subId);
+          updated_at: new Date().toISOString(),
+        };
 
-      if (updateErr) {
-        console.error(
-          '❌ Webhook – failed to activate subscription',
-          subId,
-          updateErr,
-        );
-      } else {
-        console.log(`✅ Webhook – subscription activated: ${subId}`);
+        // In practice, start_date should be "today" in club’s calendar
+        updates.start_date = new Date().toISOString().slice(0, 10);
+
+        if (membershipYear !== null) {
+          updates.membership_year = membershipYear;
+        }
+
+        const { error: updateError } = await supabase
+          .from('membership_subscriptions')
+          .update(updates)
+          .in('id', subscriptionIds);
+
+        if (updateError) {
+          console.error(
+            'Failed to update membership_subscriptions from webhook',
+            updateError,
+          );
+        }
+
+        // (Optional) you could also insert a row in membership_payments here
+        // using session.payment_intent, amount_total, etc.
+
+        break;
+      }
+
+      case 'payment_intent.succeeded': {
+        // We don’t *need* this for now, but you can log it for debugging.
+        const pi = event.data.object as Stripe.PaymentIntent;
+        console.log('payment_intent.succeeded', {
+          id: pi.id,
+          amount: pi.amount,
+          currency: pi.currency,
+        });
+        break;
+      }
+
+      default: {
+        // For all other event types we don’t care about right now,
+        // just log them and carry on.
+        console.log(`Unhandled Stripe event type: ${event.type}`);
+        break;
       }
     }
-
-    // 2) Record a payment row (best effort – don’t fail webhook if this fails)
-    const { error: paymentErr } = await supabase
-      .from('membership_payments')
-      .insert({
-        club_id: clubId,
-        household_id: householdId,
-        amount_pennies: amountPaidPennies,
-        currency: session.currency?.toUpperCase() ?? 'GBP',
-        external_reference: session.id,
-        stripe_payment_intent_id: paymentIntentId,
-        paid_at: new Date().toISOString(),
-        method: 'card_stripe',
-        membership_year: membershipYear,
-      });
-
-    if (paymentErr) {
-      console.error(
-        '⚠ Webhook – failed to insert membership_payments row',
-        paymentErr,
-      );
-    } else {
-      console.log('💰 Webhook – membership_payments row created');
-    }
-  } catch (err: any) {
-    console.error('❌ Webhook – unexpected error', err);
-    // Let Stripe retry, this is a genuine failure
-    return new NextResponse('Webhook handler error', { status: 500 });
+  } catch (err) {
+    console.error('Error handling Stripe webhook event', err);
+    return NextResponse.json(
+      { error: 'Webhook handler error' },
+      { status: 500 },
+    );
   }
 
-  return NextResponse.json({ received: true });
+  // Tell Stripe we handled it successfully
+  return NextResponse.json({ received: true }, { status: 200 });
 }
