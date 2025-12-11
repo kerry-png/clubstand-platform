@@ -118,9 +118,9 @@ export default async function JoinPage({ params }: PageProps) {
           Choose the type of membership you want to start with. You&apos;ll be
           able to manage your household and add family members afterwards.
         </p>
-        <p className="text-xs text-gray-500">
+        {/* <p className="text-xs text-gray-500">
           Signed in as <span className="font-mono">{user.email}</span>
-        </p>
+        </p> */}
       </header>
 
       {!hasAny && (
