@@ -3,8 +3,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 
-type RouteContext = {
-  params: Record<string, string | undefined>;
+type RouteParams = {
+  clubId?: string;
+  clubID?: string;
+  clubid?: string;
+  id?: string;
 };
 
 const VALID_TYPES = [
@@ -23,9 +26,14 @@ const VALID_APPLIES = [
   'household',
 ] as const;
 
-// Try params first; if that fails, parse from URL path: /api/admin/clubs/:clubId/consent-questions
-function resolveClubId(req: Request, ctx: RouteContext): string | null {
-  const p = ctx.params || {};
+// Given the resolved params object (which may be undefined),
+// try to find a clubId, otherwise fall back to parsing the URL:
+// /api/admin/clubs/:clubId/consent-questions
+function resolveClubIdFromParamsOrUrl(
+  req: Request,
+  params?: RouteParams,
+): string | null {
+  const p = params || {};
 
   const fromParams =
     p.clubId ??
@@ -51,13 +59,33 @@ function resolveClubId(req: Request, ctx: RouteContext): string | null {
   return null;
 }
 
-export async function GET(req: Request, ctx: RouteContext) {
+// Helper to resolve params for Next 16 (params can be an object or a Promise)
+async function resolveParams(
+  context:
+    | { params: RouteParams }
+    | { params: Promise<RouteParams> },
+): Promise<RouteParams> {
+  const raw: any = (context as any).params;
+  if (raw && typeof raw.then === 'function') {
+    return (await raw) as RouteParams;
+  }
+  return (raw || {}) as RouteParams;
+}
+
+// GET: return active consent/safeguarding questions for a club
+export async function GET(
+  req: Request,
+  context:
+    | { params: RouteParams }
+    | { params: Promise<RouteParams> },
+) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const params = await resolveParams(context);
+  const clubId = resolveClubIdFromParamsOrUrl(req, params);
 
   if (!clubId) {
     console.error('Safeguarding GET missing/invalid clubId', {
-      params: ctx.params,
+      params,
       url: req.url,
     });
     return NextResponse.json(
@@ -93,9 +121,16 @@ export async function GET(req: Request, ctx: RouteContext) {
   return NextResponse.json({ questions: data ?? [] });
 }
 
-export async function POST(req: Request, ctx: RouteContext) {
+// POST: create or update a consent question
+export async function POST(
+  req: Request,
+  context:
+    | { params: RouteParams }
+    | { params: Promise<RouteParams> },
+) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const params = await resolveParams(context);
+  const clubId = resolveClubIdFromParamsOrUrl(req, params);
 
   if (!clubId) {
     return NextResponse.json(
@@ -219,10 +254,16 @@ export async function POST(req: Request, ctx: RouteContext) {
   return NextResponse.json({ question: data });
 }
 
-// Simple reorder endpoint: body = { order: Array<{ id, sort_order }> }
-export async function PUT(req: Request, ctx: RouteContext) {
+// PUT: simple reorder endpoint: body = { order: Array<{ id, sort_order }> }
+export async function PUT(
+  req: Request,
+  context:
+    | { params: RouteParams }
+    | { params: Promise<RouteParams> },
+) {
   const supabase = supabaseServerClient;
-  const clubId = resolveClubId(req, ctx);
+  const params = await resolveParams(context);
+  const clubId = resolveClubIdFromParamsOrUrl(req, params);
 
   if (!clubId) {
     return NextResponse.json(
