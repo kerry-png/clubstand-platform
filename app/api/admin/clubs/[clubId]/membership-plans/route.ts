@@ -20,7 +20,7 @@ function getServiceSupabase() {
 }
 
 // GET: list membership plans (we'll filter per-club on the client)
-export async function GET(_req: Request, _ctx: RouteContext) {
+export async function GET(_req: Request) {
   try {
     const supabase = getServiceSupabase();
 
@@ -64,42 +64,42 @@ export async function POST(req: Request) {
 
     // UPDATE flow – existing plan
     if (body.id) {
-const planUpdate: Record<string, any> = {
-  // basic identity fields editable in admin
-  name: body.name,
-  slug: body.slug,
-  description:
-    typeof body.description === 'string'
-      ? body.description
-      : body.description ?? null,
+      const planUpdate: Record<string, any> = {
+        // basic identity fields editable in admin
+        name: body.name,
+        slug: body.slug,
+        description:
+          typeof body.description === 'string'
+            ? body.description
+            : body.description ?? null,
 
-  // pricing settings
-  allow_annual: body.allow_annual ?? false,
-  allow_monthly: body.allow_monthly ?? false,
-  annual_price_pennies: body.annual_price_pennies ?? null,
-  monthly_price_pennies: body.monthly_price_pennies ?? null,
+        // pricing settings
+        allow_annual: body.allow_annual ?? false,
+        allow_monthly: body.allow_monthly ?? false,
+        annual_price_pennies: body.annual_price_pennies ?? null,
+        monthly_price_pennies: body.monthly_price_pennies ?? null,
 
-  // stripe
-  stripe_price_id_annual: body.stripe_price_id_annual ?? null,
-  stripe_price_id_monthly: body.stripe_price_id_monthly ?? null,
+        // stripe
+        stripe_price_id_annual: body.stripe_price_id_annual ?? null,
+        stripe_price_id_monthly: body.stripe_price_id_monthly ?? null,
 
-  // visibility & rules
-  is_visible_online:
-    typeof body.is_visible_online === 'boolean'
-      ? body.is_visible_online
-      : undefined,
-  signing_fee_pennies: body.signing_fee_pennies ?? 0,
-  allow_discount_codes:
-    typeof body.allow_discount_codes === 'boolean'
-      ? body.allow_discount_codes
-      : undefined,
+        // visibility & rules
+        is_visible_online:
+          typeof body.is_visible_online === 'boolean'
+            ? body.is_visible_online
+            : undefined,
+        signing_fee_pennies: body.signing_fee_pennies ?? 0,
+        allow_discount_codes:
+          typeof body.allow_discount_codes === 'boolean'
+            ? body.allow_discount_codes
+            : undefined,
 
-  is_archived:
-  typeof body.is_archived === 'boolean'
-    ? body.is_archived
-    : undefined,
+        is_archived:
+          typeof body.is_archived === 'boolean'
+            ? body.is_archived
+            : undefined,
+      };
 
-};
       const { data, error } = await supabase
         .from('membership_plans')
         .update(planUpdate)
