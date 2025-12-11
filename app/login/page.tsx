@@ -15,8 +15,8 @@ function LoginPageInner() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Use redirectTo from query string, default to /dashboard
-  const redirectTo = searchParams.get('redirectTo') || '/dashboard';
+  // Use redirectTo from query string, default to /admin
+  const redirectTo = searchParams.get('redirectTo') || '/admin';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -104,6 +104,23 @@ function LoginPageInner() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+
+      <div className="flex justify-between text-xs text-slate-600">
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-slate-900"
+          onClick={() => router.push('/reset-password')}
+        >
+          Forgotten your password?
+        </button>
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-slate-900"
+          onClick={() => router.push('/change-password')}
+        >
+          Change password
+        </button>
+      </div>
     </main>
   );
 }
