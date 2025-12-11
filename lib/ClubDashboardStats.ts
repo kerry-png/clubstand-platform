@@ -1,29 +1,43 @@
-//lib/ClubDashboardStats.ts
+// lib/ClubDashboardStats.ts
 
-import { supabaseServerClient } from "@/lib/supabaseServer";
-import type { Tables } from "@/lib/database.types";
+import { Tables } from '@/lib/database.types';
+import { supabaseServerClient } from '@/lib/supabaseServer';
 
-type MemberRow = Tables<"members">;
-type SubscriptionRow = Tables<"membership_subscriptions">;
-type ConsentQuestionRow = Tables<"club_consent_questions">;
-type ConsentResponseRow = Tables<"member_consent_responses">;
+type MemberRow = Tables<'members'>;
+type SubscriptionRow = Tables<'membership_subscriptions'>;
 
-export type YesNoUnknown = "yes" | "no" | "not_answered";
+// club_consent_questions and member_consent_responses are not in the
+// generated Database types yet, so define minimal shapes based on usage.
+type ConsentQuestionRow = {
+  id: string;
+  label: string | null;
+  is_active?: boolean;
+};
+
+type ConsentResponseRow = {
+  member_id: string | null;
+  question_id: string | null;
+  // Stripe-style JSON payload – we only ever read a yes/no-ish value
+  response: any;
+};
+
+export type YesNoUnknown = 'yes' | 'no' | 'not_answered';
 
 export interface MemberWithStats {
   id: string;
   fullName: string;
-  gender: MemberRow["gender"];
-  memberType: MemberRow["member_type"];
-  status: MemberRow["status"];
+  gender: MemberRow['gender'];
+  memberType: MemberRow['member_type'];
+  status: MemberRow['status'];
   dateOfBirth: string | null;
   ageOnSept1: number | null;
-  ageBand: string | null; // e.g. U9, U10… U18 or null for adults
+  ageBand: string | null; // e.g. U9, U10 … U18 or null for adults
   isCounty: boolean;
   isDistrict: boolean;
   photoConsent: YesNoUnknown;
   medicalFlag: YesNoUnknown;
-  latestSubscriptionStatus: SubscriptionRow["status"] | null;
+  // Keep this simple so TypeScript stops fighting us
+  latestSubscriptionStatus: string | null;
   latestSubscriptionYear: number | null;
   latestSubscriptionStart: string | null;
 }
@@ -51,12 +65,17 @@ export interface ClubDashboardStats {
 // If today is on/after 1st Sept -> use this year’s 1 Sept.
 function getSeasonSept1(today = new Date()): Date {
   const year =
-    today.getMonth() >= 8 /* 0-based: 8 = September */ ? today.getFullYear() : today.getFullYear() - 1;
+    today.getMonth() >= 8 /* 0-based: 8 = September */
+      ? today.getFullYear()
+      : today.getFullYear() - 1;
   return new Date(year, 8, 1);
 }
 
 // Age on that 1 Sept
-function getAgeOnSeasonSept1(dobIso: string | null, today = new Date()): number | null {
+function getAgeOnSeasonSept1(
+  dobIso: string | null,
+  today = new Date(),
+): number | null {
   if (!dobIso) return null;
   const dob = new Date(dobIso);
   if (Number.isNaN(dob.getTime())) return null;
@@ -93,43 +112,57 @@ function getAgeBandFromAge(age: number | null): string | null {
 }
 
 function normaliseYesNoFromResponse(raw: any): YesNoUnknown {
-  if (raw === null || raw === undefined) return "not_answered";
+  if (raw === null || raw === undefined) return 'not_answered';
 
-  if (typeof raw === "boolean") return raw ? "yes" : "no";
+  if (typeof raw === 'boolean') return raw ? 'yes' : 'no';
 
-  if (typeof raw === "object") {
-    const v = raw.value;
-    if (typeof v === "boolean") return v ? "yes" : "no";
+  // If stored as { value: true/false }
+  if (typeof raw === 'object') {
+    const v = (raw as any).value;
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
   }
 
-  return "not_answered";
+  // Fallback for strings etc.
+  const text = String(raw).toLowerCase();
+  if (['yes', 'y', 'true', '1'].includes(text)) return 'yes';
+  if (['no', 'n', 'false', '0'].includes(text)) return 'no';
+
+  return 'not_answered';
 }
+
+// We know the DB *does* have membership_year even though it’s not in the
+// generated types, so extend the type here rather than fighting the generator.
+type SubscriptionRowWithYear = SubscriptionRow & {
+  membership_year?: number | null;
+};
 
 export async function loadClubDashboardData(
   clubId: string,
 ): Promise<ClubDashboardStats> {
-  const supabase = supabaseServerClient();
+  // IMPORTANT: supabaseServerClient is already a client instance,
+  // not a function – don’t call it.
+  const supabase = supabaseServerClient;
 
   const [membersRes, subsRes, questionsRes, responsesRes] = await Promise.all([
     supabase
-      .from("members")
+      .from('members')
       .select(
-        "id, club_id, first_name, last_name, preferred_name, gender, member_type, status, date_of_birth, is_county_player, is_district_player",
+        'id, club_id, first_name, last_name, preferred_name, gender, member_type, status, date_of_birth, is_county_player, is_district_player',
       )
-      .eq("club_id", clubId),
+      .eq('club_id', clubId),
     supabase
-      .from("membership_subscriptions")
-      .select("id, member_id, status, membership_year, start_date")
-      .eq("club_id", clubId),
+      .from('membership_subscriptions')
+      .select('id, member_id, status, membership_year, start_date')
+      .eq('club_id', clubId),
     supabase
-      .from("club_consent_questions")
-      .select("id, label, is_active")
-      .eq("club_id", clubId)
-      .eq("is_active", true),
+      .from('club_consent_questions')
+      .select('id, label, is_active')
+      .eq('club_id', clubId)
+      .eq('is_active', true),
     supabase
-      .from("member_consent_responses")
-      .select("member_id, question_id, response")
-      .eq("club_id", clubId),
+      .from('member_consent_responses')
+      .select('member_id, question_id, response')
+      .eq('club_id', clubId),
   ]);
 
   if (membersRes.error) throw membersRes.error;
@@ -138,7 +171,7 @@ export async function loadClubDashboardData(
   if (responsesRes.error) throw responsesRes.error;
 
   const members = (membersRes.data ?? []) as MemberRow[];
-  const subs = (subsRes.data ?? []) as SubscriptionRow[];
+  const subs = (subsRes.data ?? []) as SubscriptionRowWithYear[];
   const questions = (questionsRes.data ?? []) as ConsentQuestionRow[];
   const responses = (responsesRes.data ?? []) as ConsentResponseRow[];
 
@@ -150,15 +183,15 @@ export async function loadClubDashboardData(
   const medicalQuestionIds = new Set<string>();
 
   for (const q of questions) {
-    const label = (q.label ?? "").toLowerCase();
+    const label = (q.label ?? '').toLowerCase();
     if (
-      label.includes("photo") ||
-      label.includes("photograph") ||
-      label.includes("image")
+      label.includes('photo') ||
+      label.includes('photograph') ||
+      label.includes('image')
     ) {
       photoQuestionIds.add(q.id as string);
     }
-    if (label.includes("medical") || label.includes("health")) {
+    if (label.includes('medical') || label.includes('health')) {
       medicalQuestionIds.add(q.id as string);
     }
   }
@@ -172,46 +205,39 @@ export async function loadClubDashboardData(
     if (!memberId) continue;
 
     const qId = r.question_id as string;
-    const raw = (r as any).response;
+    const raw = r.response;
+
     const value = normaliseYesNoFromResponse(raw);
 
     if (photoQuestionIds.has(qId)) {
       // If multiple, a definite "no" should win over "yes"
       const existing = photoByMember.get(memberId);
-      if (value === "no" || !existing) {
+      if (value === 'no' || !existing) {
         photoByMember.set(memberId, value);
       }
     }
 
     if (medicalQuestionIds.has(qId)) {
       const existing = medicalByMember.get(memberId);
-      if (value === "no" || !existing) {
+      if (value === 'no' || !existing) {
         medicalByMember.set(memberId, value);
       }
     }
   }
 
-  // Latest subscription per member (by membership_year then start_date)
-  const subsByMember = new Map<
-    string,
-    { status: SubscriptionRow["status"]; membership_year: number; start_date: string }
-  >();
+  // Index subscriptions by member
+  const subsByMember = new Map<string, SubscriptionRowWithYear>();
+  for (const s of subs) {
+    if (!s.member_id) continue;
+    const existing = subsByMember.get(s.member_id);
+    if (!existing) {
+      subsByMember.set(s.member_id, s);
+      continue;
+    }
 
-  for (const sub of subs) {
-    const memberId = sub.member_id as string | null;
-    if (!memberId) continue;
-    const existing = subsByMember.get(memberId);
-    if (
-      !existing ||
-      sub.membership_year > existing.membership_year ||
-      (sub.membership_year === existing.membership_year &&
-        sub.start_date > existing.start_date)
-    ) {
-      subsByMember.set(memberId, {
-        status: sub.status,
-        membership_year: sub.membership_year as unknown as number,
-        start_date: sub.start_date,
-      });
+    // Prefer the latest start_date – simple max by ISO date
+    if (s.start_date > existing.start_date) {
+      subsByMember.set(s.member_id, s);
     }
   }
 
@@ -224,14 +250,12 @@ export async function loadClubDashboardData(
     const ageBand = getAgeBandFromAge(ageOnSept1);
 
     const photoConsent =
-      photoQuestionIds.size > 0
-        ? photoByMember.get(m.id) ?? "not_answered"
-        : "not_answered";
+      photoByMember.get(m.id) ??
+      (m.member_type === 'player' && ageBand ? 'not_answered' : 'not_answered');
 
     const medicalFlag =
-      medicalQuestionIds.size > 0
-        ? medicalByMember.get(m.id) ?? "not_answered"
-        : "not_answered";
+      medicalByMember.get(m.id) ??
+      (m.member_type === 'player' && ageBand ? 'not_answered' : 'not_answered');
 
     const subInfo = subsByMember.get(m.id);
 
@@ -256,21 +280,21 @@ export async function loadClubDashboardData(
 
   const totalMembers = membersWithStats.length;
   const activeMembers = membersWithStats.filter(
-    (m) => m.status === "active",
+    (m) => m.status === 'active',
   ).length;
 
-  const maleCount = membersWithStats.filter((m) => m.gender === "male").length;
+  const maleCount = membersWithStats.filter((m) => m.gender === 'male').length;
   const femaleCount = membersWithStats.filter(
-    (m) => m.gender === "female",
+    (m) => m.gender === 'female',
   ).length;
 
   const juniors = membersWithStats.filter(
-    (m) => m.ageBand !== null && m.memberType === "player",
+    (m) => m.ageBand !== null && m.memberType === 'player',
   );
 
-  const juniorMaleCount = juniors.filter((j) => j.gender === "male").length;
+  const juniorMaleCount = juniors.filter((j) => j.gender === 'male').length;
   const juniorFemaleCount = juniors.filter(
-    (j) => j.gender === "female",
+    (j) => j.gender === 'female',
   ).length;
 
   const juniorBands: Record<string, number> = {};
@@ -283,7 +307,7 @@ export async function loadClubDashboardData(
   const districtCount = juniors.filter((j) => j.isDistrict).length;
 
   const juniorsNoPhotoConsentCount = juniors.filter(
-    (j) => j.photoConsent !== "yes",
+    (j) => j.photoConsent !== 'yes',
   ).length;
 
   return {
