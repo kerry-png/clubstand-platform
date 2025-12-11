@@ -1,4 +1,3 @@
-// app/club/[slug]/join/page.tsx
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -18,7 +17,6 @@ type PlanRow = {
   is_household_plan: boolean;
 };
 
-// Temporary: hard-code Rainhill while we’re still in single-club mode
 const RAINHILL_CLUB_ID = '42f3aeee-804e-4321-8cde-6b4d23fe78cc';
 
 export default async function JoinPage({ params }: PageProps) {
@@ -29,12 +27,11 @@ export default async function JoinPage({ params }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) {
     redirect(`/login?redirectTo=/club/${slug}/join`);
   }
 
-  // 2) Try to load club by slug
+  // 2) Load club by slug
   const { data: clubRow, error: clubError } = await supabase
     .from('clubs')
     .select('id, name, slug')
@@ -43,11 +40,7 @@ export default async function JoinPage({ params }: PageProps) {
 
   let club = clubRow;
 
-  // If no club found but slug is 'rainhill', fall back to known ID/name
   if (!club && slug === 'rainhill') {
-    console.warn(
-      'No club row found for slug "rainhill" – using fallback Rainhill club config.',
-    );
     club = {
       id: RAINHILL_CLUB_ID,
       name: 'Rainhill Cricket Club',
@@ -56,10 +49,14 @@ export default async function JoinPage({ params }: PageProps) {
   }
 
   if ((clubError || !club) && slug !== 'rainhill') {
-    console.error('Club lookup error', clubError);
     return (
       <main className="max-w-2xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-2">Club not found</h1>
+        <h1
+          className="text-2xl font-semibold"
+          style={{ color: 'var(--brand-primary)' }}
+        >
+          Club not found
+        </h1>
         <p className="text-sm text-gray-700">
           We couldn&apos;t find a club with slug{' '}
           <span className="font-mono">{slug}</span>.
@@ -68,43 +65,34 @@ export default async function JoinPage({ params }: PageProps) {
     );
   }
 
-  // 3) Load all visible membership plans for this club
+  // 3) Load plans
   const { data: plans, error: plansError } = await supabase
     .from('membership_plans')
-    .select(
-      `
-        id,
-        name,
-        slug,
-        description,
-        price_pennies,
-        is_player_plan,
-        is_junior_only,
-        is_household_plan
-      `,
-    )
+    .select(`
+      id,
+      name,
+      slug,
+      description,
+      price_pennies,
+      is_player_plan,
+      is_junior_only,
+      is_household_plan
+    `)
     .eq('club_id', club!.id)
     .eq('is_visible_online', true)
     .order('sort_order', { ascending: true })
     .order('name', { ascending: true });
 
-  if (plansError) {
-    console.error('Plans load error', plansError);
-  }
-
-  // Hide household plans (e.g. family cap) from the selection UI for now
-  const visiblePlans = (plans ?? []).filter(
-    (p: any) => !p.is_household_plan,
-  ) as PlanRow[];
+  const visiblePlans = (plans ?? []).filter((p: any) => !p.is_household_plan);
 
   const adultPlans = visiblePlans.filter(
-    (p) => p.is_player_plan && !p.is_junior_only,
+    (p) => p.is_player_plan && !p.is_junior_only
   );
   const juniorPlans = visiblePlans.filter(
-    (p) => p.is_player_plan && p.is_junior_only,
+    (p) => p.is_player_plan && p.is_junior_only
   );
   const socialPlans = visiblePlans.filter(
-    (p) => !p.is_player_plan && !p.is_junior_only,
+    (p) => !p.is_player_plan && !p.is_junior_only
   );
 
   const hasAny = visiblePlans.length > 0;
@@ -120,7 +108,12 @@ export default async function JoinPage({ params }: PageProps) {
   return (
     <main className="max-w-3xl mx-auto px-4 py-10 space-y-8">
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold">Join {club!.name}</h1>
+        <h1
+          className="text-3xl font-semibold"
+          style={{ color: 'var(--brand-primary)' }}
+        >
+          Join {club!.name}
+        </h1>
         <p className="text-sm text-gray-700">
           Choose the type of membership you want to start with. You&apos;ll be
           able to manage your household and add family members afterwards.
@@ -133,15 +126,13 @@ export default async function JoinPage({ params }: PageProps) {
       {!hasAny && (
         <p className="text-sm text-red-700">
           This club doesn&apos;t currently have any online membership plans
-          available. Please contact the club directly to join.
+          available.
         </p>
       )}
-              <h2 className="text-2xl font-semibold">
-                Memberships
-              </h2>
+
       {hasAny && (
         <section className="space-y-6">
-          {/* Adult memberships */}
+          {/* Adult */}
           {adultPlans.length > 0 && (
             <div className="space-y-3">
               <div className="grid gap-4 md:grid-cols-2">
@@ -153,7 +144,10 @@ export default async function JoinPage({ params }: PageProps) {
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-lg font-semibold text-slate-900">
+                        <h3
+                          className="text-lg font-semibold"
+                          style={{ color: 'var(--brand-primary)' }}
+                        >
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -167,7 +161,10 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
+                      <span
+                        className="inline-flex px-3 py-1 rounded-md text-xs text-white"
+                        style={{ background: 'var(--brand-primary)' }}
+                      >
                         Join as {plan.name}
                       </span>
                     </div>
@@ -177,10 +174,9 @@ export default async function JoinPage({ params }: PageProps) {
             </div>
           )}
 
-          {/* Junior memberships */}
+          {/* Juniors */}
           {juniorPlans.length > 0 && (
             <div className="space-y-3">
-              {/*<h2 className="text-lg font-semibold">Junior memberships</h2>*/}
               <div className="grid gap-4 md:grid-cols-2">
                 {juniorPlans.map((plan) => (
                   <Link
@@ -190,7 +186,10 @@ export default async function JoinPage({ params }: PageProps) {
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-lg font-semibold text-slate-900">
+                        <h3
+                          className="text-lg font-semibold"
+                          style={{ color: 'var(--brand-primary)' }}
+                        >
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -204,7 +203,10 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
+                      <span
+                        className="inline-flex px-3 py-1 rounded-md text-xs text-white"
+                        style={{ background: 'var(--brand-primary)' }}
+                      >
                         Join with this junior membership
                       </span>
                     </div>
@@ -214,10 +216,9 @@ export default async function JoinPage({ params }: PageProps) {
             </div>
           )}
 
-          {/* Social / non-playing memberships */}
+          {/* Social */}
           {socialPlans.length > 0 && (
             <div className="space-y-3">
-              {/*<h2 className="text-lg font-semibold">Social & non-playing</h2>*/}
               <div className="grid gap-4 md:grid-cols-2">
                 {socialPlans.map((plan) => (
                   <Link
@@ -227,7 +228,10 @@ export default async function JoinPage({ params }: PageProps) {
                   >
                     <div className="space-y-1">
                       <div className="flex items-baseline justify-between gap-2">
-                        <h3 className="text-lg font-semibold text-slate-900">
+                        <h3
+                          className="text-lg font-semibold"
+                          style={{ color: 'var(--brand-primary)' }}
+                        >
                           {plan.name}
                         </h3>
                         <span className="text-sm font-semibold">
@@ -241,7 +245,10 @@ export default async function JoinPage({ params }: PageProps) {
                       )}
                     </div>
                     <div className="mt-4">
-                      <span className="inline-flex px-3 py-1 rounded-md text-xs bg-[var(--club-primary)] text-white">
+                      <span
+                        className="inline-flex px-3 py-1 rounded-md text-xs text-white"
+                        style={{ background: 'var(--brand-primary)' }}
+                      >
                         Join with this membership
                       </span>
                     </div>
@@ -255,7 +262,7 @@ export default async function JoinPage({ params }: PageProps) {
 
       <footer className="text-xs text-gray-500">
         After starting your membership, you&apos;ll be able to manage your
-        household and add family members from your dashboard.
+        household and add family members.
       </footer>
     </main>
   );

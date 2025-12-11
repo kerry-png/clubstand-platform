@@ -57,7 +57,7 @@ export default async function JoinDetailsPage(props: PageProps) {
     redirect(`/club/${slug}/join`);
   }
 
-  // Load plan (still needed for backend + pricing, but we won’t shout about it in the UI)
+  // Load plan
   const { data: plan, error: planError } = await supabase
     .from("membership_plans")
     .select(
@@ -82,14 +82,24 @@ export default async function JoinDetailsPage(props: PageProps) {
   return (
     <main className="max-w-2xl mx-auto px-4 py-10 space-y-6">
       <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Your details</h1>
+        <h1
+          className="text-2xl font-semibold"
+          style={{ color: "var(--brand-primary)" }}
+        >
+          Your details
+        </h1>
+
         <p className="text-sm text-gray-700">
-          We&apos;ll set up your household first, then you&apos;ll add players
-          and choose memberships before completing payment.
+          We'll set up your household first, then you'll add players and choose
+          memberships before completing payment.
         </p>
+
         <p className="text-xs text-gray-500">
           Joining{" "}
-          <span className="font-medium">
+          <span
+            className="font-medium"
+            style={{ color: "var(--brand-accent)" }}
+          >
             {clubToUse!.name}
           </span>{" "}
           · signed in as{" "}

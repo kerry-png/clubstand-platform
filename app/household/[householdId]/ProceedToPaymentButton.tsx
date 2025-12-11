@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 type Props = {
   householdId: string;
@@ -17,7 +16,7 @@ export default function ProceedToPaymentButton({
   const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    if (disabled || loading) return; // safety guard
+    if (disabled || loading) return;
 
     setError(null);
     setLoading(true);
@@ -70,18 +69,23 @@ export default function ProceedToPaymentButton({
 
   return (
     <div className="space-y-1">
-<button
-  type="button"
-  onClick={handleClick}
-  disabled={isDisabled}
-  className={`px-4 py-2 rounded bg-black text-white text-sm ${
-    isDisabled
-      ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
-      : 'bg-[var(--club-primary)] text-white hover:brightness-90'
-  }`}
->
-  {loading ? 'Starting secure payment…' : 'Pay online now'}
-</button>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={isDisabled}
+        className={`px-4 py-2 rounded text-sm text-white ${
+          isDisabled
+            ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
+            : 'hover:brightness-90'
+        }`}
+        style={
+          isDisabled
+            ? undefined
+            : { background: 'var(--brand-primary)' }
+        }
+      >
+        {loading ? 'Starting secure payment…' : 'Pay online now'}
+      </button>
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   );
