@@ -17,7 +17,7 @@ export default async function AdminsPage({ params }: PageProps) {
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-900">
-          Admins &amp; roles
+          Admins &amp; Roles
         </h1>
         <p className="text-sm text-slate-600">
           Manage which users can administer this club and configure their

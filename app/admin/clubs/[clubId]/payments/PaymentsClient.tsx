@@ -1,6 +1,7 @@
 // app/admin/clubs/[clubId]/payments/PaymentsClient.tsx
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type YesNoUnknown = "yes" | "no" | "unknown";
@@ -55,11 +56,23 @@ type PaymentsClientProps = {
 
 type ViewFilter = "awaiting" | "paid";
 
+type StripeStatus = {
+  connected: boolean;
+  status: "not_connected" | "pending" | "connected" | "restricted" | string;
+  stripe_account_id: string | null;
+  charges_enabled: boolean;
+  payouts_enabled: boolean;
+  details_submitted: boolean;
+};
+
 export default function PaymentsClient({ clubId }: PaymentsClientProps) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<ViewFilter>("awaiting");
+
+  const [stripeStatus, setStripeStatus] = useState<StripeStatus | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +104,31 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
     }
 
     load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadStripe() {
+      setStripeLoading(true);
+      try {
+        const res = await fetch(`/api/admin/clubs/${clubId}/stripe/status`, {
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(json?.error ?? "Failed to load Stripe status");
+        if (!cancelled) setStripeStatus(json as StripeStatus);
+      } catch {
+        if (!cancelled) setStripeStatus(null);
+      } finally {
+        if (!cancelled) setStripeLoading(false);
+      }
+    }
+
+    loadStripe();
     return () => {
       cancelled = true;
     };
@@ -143,6 +181,15 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
       ? "All junior playing members currently have an active membership recorded for this season."
       : "No junior playing members are marked as fully paid up yet.";
 
+  const stripeBadge =
+    stripeStatus?.status === "connected"
+      ? { text: "Connected", cls: "bg-emerald-100 text-emerald-800 border-emerald-200" }
+      : stripeStatus?.status === "pending"
+      ? { text: "Onboarding", cls: "bg-amber-100 text-amber-900 border-amber-200" }
+      : stripeStatus?.status === "restricted"
+      ? { text: "Action required", cls: "bg-red-100 text-red-800 border-red-200" }
+      : { text: "Not connected", cls: "bg-slate-100 text-slate-800 border-slate-200" };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -155,6 +202,39 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
           paid for the new season and who is still awaiting payment.
         </p>
       </header>
+
+      {/* Stripe connection card */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Stripe connection</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Each club needs their own Stripe account connected before taking payments.
+            </p>
+          </div>
+
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${stripeBadge.cls}`}>
+            {stripeLoading ? "Checking…" : stripeBadge.text}
+          </span>
+        </div>
+
+        {stripeLoading ? (
+          <p className="mt-2 text-xs text-slate-600">Loading Stripe status…</p>
+        ) : stripeStatus?.status !== "connected" ? (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            This club can’t take payments until Stripe onboarding is completed.
+          </div>
+        ) : null}
+
+        <div className="mt-3">
+          <Link
+            href={`/admin/clubs/${clubId}/payments/stripe`}
+            className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+          >
+            Manage Stripe connection
+          </Link>
+        </div>
+      </section>
 
       {/* Season + toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">

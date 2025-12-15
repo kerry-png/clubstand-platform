@@ -15,11 +15,9 @@ type RootLayoutProps = {
 };
 
 export default async function RootLayout({ children }: RootLayoutProps) {
-  // Load branding from domain or slug
   const { branding } = await getClubFromRequest();
 
-  // Convert branding.cssVars into a proper React style object
-  // Example: { "--brand-primary": "#0f172a", "--brand-secondary": "#334155" }
+  // CSS variables must be applied on <html> so they’re available everywhere
   const cssVarObject: Record<string, string> = {};
   Object.entries(branding.cssVars).forEach(([key, value]) => {
     cssVarObject[key] = value;
@@ -27,7 +25,13 @@ export default async function RootLayout({ children }: RootLayoutProps) {
 
   return (
     <html lang="en" style={cssVarObject}>
-      <body className="min-h-screen bg-slate-50">
+      <body
+        className="min-h-screen"
+        style={{
+          backgroundColor: 'var(--brand-bg)',
+          color: 'var(--brand-text)',
+        }}
+      >
         <AppShell>{children}</AppShell>
       </body>
     </html>

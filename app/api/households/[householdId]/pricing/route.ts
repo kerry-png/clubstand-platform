@@ -1,78 +1,43 @@
 // app/api/households/[householdId]/pricing/route.ts
 
-import { NextResponse } from 'next/server';
-import { supabaseServerClient } from '@/lib/supabaseServer';
-import {
-  type HouseholdMemberInput,
-  type ClubPricingConfig,
-} from '@/lib/pricing/rainhill2026';
-import {
-  buildRainhill2026PricingWithSubs,
-  type SubscriptionRow,
-} from '@/lib/pricing/rainhill2026WithSubs';
+import { NextResponse } from "next/server";
+import { supabaseServerClient } from "@/lib/supabaseServer";
+import { applyPricingRules, type PricingRule, type PricedItem } from "@/lib/pricing";
 
-type RouteParams = {
-  householdId: string;
+type RouteParams = { householdId: string };
+
+type RawSubscription = {
+  id: string;
+  club_id: string | null;
+  plan_id: string;
+  member_id: string | null;
+  household_id: string;
+  status: string;
+  membership_year: number | null;
+  amount_pennies: number | null;
+  discount_pennies: number | null;
 };
 
-async function getHouseholdClubId(householdId: string) {
+function planKindFromPlan(plan: any): "adult" | "junior" | "other" {
+  if (plan?.is_player_plan && plan?.is_junior_only) return "junior";
+  if (plan?.is_player_plan) return "adult";
+  return "other";
+}
+
+async function getHouseholdClubId(householdId: string): Promise<string | null> {
   const { data, error } = await supabaseServerClient
-    .from('households')
-    .select('club_id')
-    .eq('id', householdId)
+    .from("membership_subscriptions")
+    .select("club_id")
+    .eq("household_id", householdId)
+    .not("club_id", "is", null)
+    .limit(1)
     .maybeSingle();
 
   if (error) {
-    console.error('Pricing: failed to load household club_id', error);
+    console.error("getHouseholdClubId error", error);
     return null;
   }
-
   return (data?.club_id as string | null) ?? null;
-}
-
-async function getClubPricingConfig(
-  clubId: string,
-  membershipYear: number,
-): Promise<ClubPricingConfig | undefined> {
-  const { data, error } = await supabaseServerClient
-    .from('club_pricing_config')
-    .select('*')
-    .eq('club_id', clubId)
-    .eq('membership_year', membershipYear)
-    .maybeSingle();
-
-  if (error || !data) {
-    // No config row – the engine will fall back to DEFAULT_RAINHILL_2026_CONFIG
-    if (error) {
-      console.error('Pricing: failed to load club_pricing_config', error);
-    }
-    return undefined;
-  }
-
-  const cfg: ClubPricingConfig = {
-    pricing_model: (data as any).pricing_model ?? 'bundled',
-    cutoff_month: data.cutoff_month,
-    cutoff_day: data.cutoff_day,
-    junior_max_age: data.junior_max_age,
-    adult_min_age: data.adult_min_age,
-    adult_bundle_min_age: data.adult_bundle_min_age,
-    enable_adult_bundle: data.enable_adult_bundle,
-    require_junior_for_adult_bundle:
-      data.require_junior_for_adult_bundle,
-    min_adults_for_bundle: data.min_adults_for_bundle,
-    male_full_price_pennies: data.male_full_price_pennies,
-    male_intermediate_price_pennies:
-      data.male_intermediate_price_pennies,
-    female_full_price_pennies: data.female_full_price_pennies,
-    female_intermediate_price_pennies:
-      data.female_intermediate_price_pennies,
-    junior_single_price_pennies: data.junior_single_price_pennies,
-    junior_multi_price_pennies: data.junior_multi_price_pennies,
-    social_adult_price_pennies: data.social_adult_price_pennies,
-    adult_bundle_price_pennies: data.adult_bundle_price_pennies,
-  };
-
-  return cfg;
 }
 
 export async function GET(
@@ -81,137 +46,114 @@ export async function GET(
 ) {
   const supabase = supabaseServerClient;
 
-  // Next 16: params may be a plain object or a Promise
   const rawParams: any = (context as any).params;
-  const resolvedParams: RouteParams = rawParams?.then
-    ? await rawParams
-    : rawParams;
+  const resolvedParams: RouteParams = rawParams?.then ? await rawParams : rawParams;
 
   const householdId = resolvedParams?.householdId;
-
-  if (!householdId || householdId === 'undefined') {
-    return NextResponse.json(
-      { error: 'Missing household id in URL' },
-      { status: 400 },
-    );
+  if (!householdId || householdId === "undefined") {
+    return NextResponse.json({ error: "Missing household id in URL" }, { status: 400 });
   }
 
-  // Optional: allow overriding the season year via query (?seasonYear=2027)
   const url = new URL(req.url);
-  const seasonYearParam = url.searchParams.get('seasonYear');
-  const seasonYear = seasonYearParam
-    ? Number(seasonYearParam) || 2026
-    : 2026;
+  const seasonYearParam = url.searchParams.get("seasonYear");
+  const seasonYear = seasonYearParam ? Number(seasonYearParam) || 2026 : 2026;
 
-  // 1) Household → club_id (optional, for config; we don't hard-fail if null)
   const clubId = await getHouseholdClubId(householdId);
-  const config = clubId
-    ? await getClubPricingConfig(clubId, seasonYear)
-    : undefined;
 
-  // 2) Load all members for this household
-  const { data: members, error: membersError } = await supabase
-    .from('members')
-    .select('id, date_of_birth, gender, member_type')
-    .eq('household_id', householdId);
-
-  if (membersError) {
-    console.error('Pricing: members load error', membersError);
-    return NextResponse.json(
-      {
-        error: 'Failed to load household members',
-        details: membersError.message,
-        code: membersError.code,
-      },
-      { status: 500 },
-    );
-  }
-
-  const memberInputs: HouseholdMemberInput[] = (members ?? []).map(
-    (m: any) => ({
-      id: m.id,
-      date_of_birth: m.date_of_birth,
-      gender: (m.gender as any) ?? null,
-      member_type: (m.member_type as any) ?? 'member',
-    }),
-  );
-
-  // 3) Load all membership_subscriptions for this household
-  const { data: subs, error: subsError } = await supabase
-    .from('membership_subscriptions')
-    .select(
-      `
-        id,
-        club_id,
-        plan_id,
-        member_id,
-        household_id,
-        status,
-        membership_year,
-        start_date,
-        end_date,
-        auto_renews,
-        amount_pennies,
-        discount_pennies,
-        stripe_subscription_id,
-        notes_internal
-      `,
-    )
-    .eq('household_id', householdId);
+  // 1) Load subs for household/year
+  const { data: rawSubs, error: subsError } = await supabase
+    .from("membership_subscriptions")
+    .select("id, club_id, plan_id, member_id, household_id, status, membership_year, amount_pennies, discount_pennies")
+    .eq("household_id", householdId)
+    .eq("membership_year", seasonYear);
 
   if (subsError) {
-    console.error('Pricing: subscriptions load error', subsError);
+    console.error("Pricing: subscriptions load error", subsError);
     return NextResponse.json(
-      {
-        error: 'Failed to load household subscriptions',
-        details: subsError.message,
-        code: subsError.code,
-      },
+      { error: "Failed to load household subscriptions", details: subsError.message },
       { status: 500 },
     );
   }
 
-  // Normalise to SubscriptionRow
-  const subscriptionRows: SubscriptionRow[] = (subs ?? []).map(
-    (s: any) => ({
-      id: s.id,
-      club_id: s.club_id ?? null,
-      plan_id: s.plan_id,
-      member_id: s.member_id ?? null,
-      household_id: s.household_id,
-      status: s.status,
-      membership_year:
-        typeof s.membership_year === 'number'
-          ? s.membership_year
-          : 0,
-      start_date: s.start_date,
-      end_date: s.end_date,
-      auto_renews: s.auto_renews ?? null,
-      amount_pennies: s.amount_pennies ?? 0,
-      discount_pennies: s.discount_pennies ?? 0,
-      stripe_subscription_id: s.stripe_subscription_id ?? null,
-      notes_internal: s.notes_internal ?? null,
-    }),
-  );
+  const subs: RawSubscription[] = (rawSubs ?? []) as any;
 
-  // 4) Run combined pricing + subs engine (now with optional config)
-  const pricingWithSubs = buildRainhill2026PricingWithSubs({
-    householdId,
-    members: memberInputs,
-    existingSubscriptions: subscriptionRows,
-    seasonYear,
-    config,
+  if (!clubId) {
+    // No club yet (should be rare). Return simple totals.
+    const baseTotal = subs.reduce((s, r) => s + Number(r.amount_pennies ?? 0), 0);
+    return NextResponse.json(
+      {
+        success: true,
+        householdId,
+        seasonYear,
+        clubId: null,
+        baseTotalPennies: baseTotal,
+        finalTotalPennies: baseTotal,
+        adjustmentPennies: 0,
+        applied: [],
+        subscriptions: subs,
+      },
+      { status: 200 },
+    );
+  }
+
+  // 2) Load pricing rules
+  const { data: rulesRows, error: rulesErr } = await supabase
+    .from("pricing_rules")
+    .select("*")
+    .eq("club_id", clubId)
+    .eq("is_active", true)
+    .order("priority", { ascending: true });
+
+  if (rulesErr) {
+    console.error("Pricing: pricing_rules load error", rulesErr);
+    return NextResponse.json(
+      { error: "Failed to load pricing rules", details: rulesErr.message },
+      { status: 500 },
+    );
+  }
+
+  const pricingRules = (rulesRows ?? []) as unknown as PricingRule[];
+
+  // 3) Load plan metadata so we can classify adult/junior
+  const planIds = Array.from(new Set(subs.map((s) => s.plan_id).filter(Boolean)));
+  const { data: plansRows, error: plansErr } = await supabase
+    .from("membership_plans")
+    .select("id, is_player_plan, is_junior_only")
+    .in("id", planIds);
+
+  if (plansErr) {
+    console.error("Pricing: membership_plans load error", plansErr);
+    return NextResponse.json(
+      { error: "Failed to load membership plans", details: plansErr.message },
+      { status: 500 },
+    );
+  }
+
+  const planById = new Map((plansRows ?? []).map((p: any) => [p.id, p]));
+
+  // 4) Build items from subscription base amounts
+  const items: PricedItem[] = subs.map((s) => {
+    const plan = planById.get(s.plan_id);
+    return {
+      planId: s.plan_id,
+      kind: planKindFromPlan(plan),
+      amountPennies: Number(s.amount_pennies ?? 0),
+    };
   });
+
+  const pricing = applyPricingRules(items, pricingRules);
 
   return NextResponse.json(
     {
       success: true,
       householdId,
-      seasonYear: pricingWithSubs.engine.seasonYear,
-      enginePricing: pricingWithSubs.engine,
-      pricing: pricingWithSubs,
+      seasonYear,
       clubId,
-      usedConfig: config ?? null,
+      baseTotalPennies: pricing.baseTotalPennies,
+      finalTotalPennies: pricing.finalTotalPennies,
+      adjustmentPennies: pricing.adjustmentPennies,
+      applied: pricing.applied,
+      subscriptions: subs,
     },
     { status: 200 },
   );

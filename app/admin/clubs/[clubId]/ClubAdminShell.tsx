@@ -14,6 +14,7 @@ type Theme = {
   logoUrl: string | null;
   primary: string;
   secondary: string;
+  accent?: string;
 };
 
 type AdminPermissions = {
@@ -59,7 +60,10 @@ export default function ClubAdminShell({ children, theme }: Props) {
       setAdmin(undefined);
 
       try {
-        const res = await fetch(`/api/admin/clubs/${theme.clubId}/current-admin`, { cache: "no-store" });
+        const res = await fetch(`/api/admin/clubs/${theme.clubId}/current-admin`, {
+          cache: "no-store",
+        });
+
         if (!res.ok) {
           const json = await res.json().catch(() => null);
           throw new Error(json?.error || `Failed to load admin permissions (${res.status})`);
@@ -70,6 +74,7 @@ export default function ClubAdminShell({ children, theme }: Props) {
 
         setAdmin(json.admin ?? null);
 
+        // Fetch user email (for sidebar "Signed in as")
         supabase.auth.getUser().then(({ data: { user } }) => {
           if (user?.email) setUserEmail(user.email);
         });
@@ -85,20 +90,24 @@ export default function ClubAdminShell({ children, theme }: Props) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme.clubId]);
 
   const initials = makeInitials(theme.clubName);
 
+  // Use CSS vars (set by layout) as the source of truth
   const primary = "var(--brand-primary)";
   const secondary = "var(--brand-secondary)";
+  const accent = "var(--brand-accent)";
 
   const navItems: NavItem[] = [
     { type: "item", href: `${basePath}/dashboard`, label: "Dashboard", key: "dashboard" },
     { type: "item", href: `${basePath}/juniors`, label: "Juniors", key: "juniors" },
     { type: "item", href: `${basePath}/payments`, label: "Payments", key: "payments" },
-    { type: "item", href: `${basePath}/plans`, label: "Plans & pricing", key: "plans" },
+    { type: "item", href: `${basePath}/plans`, label: "Plans & Pricing", key: "plans" },
+    { type: "item", href: `${basePath}/pricing/rules`, label: "Pricing Rules", key: "pricing" },
     { type: "section", label: "Settings" },
-    { type: "item", href: `${basePath}/settings/admins`, label: "Admins & roles", key: "admins" }
+    { type: "item", href: `${basePath}/settings/admins`, label: "Admins & Roles", key: "admins" },
   ];
 
   function canSeeNavItem(item: NavItem) {
@@ -108,12 +117,20 @@ export default function ClubAdminShell({ children, theme }: Props) {
     if (admin.is_super_admin) return true;
 
     switch (item.key) {
-      case "dashboard": return admin.can_view_dashboard;
-      case "juniors": return admin.can_view_juniors;
-      case "payments": return admin.can_view_payments;
-      case "plans": return admin.can_manage_plans;
-      case "admins": return admin.can_manage_admins;
-      default: return true;
+      case "dashboard":
+        return admin.can_view_dashboard;
+      case "juniors":
+        return admin.can_view_juniors;
+      case "payments":
+        return admin.can_view_payments;
+      case "plans":
+        return admin.can_manage_plans;
+      case "pricing":
+        return admin.can_manage_pricing;
+      case "admins":
+        return admin.can_manage_admins;
+      default:
+        return true;
     }
   }
 
@@ -123,11 +140,14 @@ export default function ClubAdminShell({ children, theme }: Props) {
   const handleLogout = async () => {
     if (loggingOut) return;
     setLoggingOut(true);
+
     try {
       await supabase.auth.signOut();
       try {
         await fetch("/auth/logout", { method: "POST" });
-      } catch {}
+      } catch {
+        // ignore
+      }
       window.location.href = "/";
     } catch {
       setLoggingOut(false);
@@ -137,7 +157,13 @@ export default function ClubAdminShell({ children, theme }: Props) {
   return (
     <div className="flex min-h-screen bg-slate-50">
       {/* SIDEBAR */}
-      <aside className="hidden w-64 flex-col border-r border-slate-200 bg-white md:flex">
+      <aside
+        className="hidden w-64 flex-col border-r md:flex"
+        style={{
+          background: secondary,
+          borderColor: "rgba(0,0,0,0.08)",
+        }}
+      >
         <div className="border-b border-slate-100 px-4 py-4">
           <div className="flex items-center gap-3">
             {theme.logoUrl ? (
@@ -145,7 +171,7 @@ export default function ClubAdminShell({ children, theme }: Props) {
                 src={theme.logoUrl}
                 alt={theme.clubName}
                 className="h-10 w-10 rounded-full border object-cover"
-                style={{ borderColor: secondary }}
+                style={{ borderColor: "rgba(0,0,0,0.08)" }}
               />
             ) : (
               <div
@@ -177,31 +203,33 @@ export default function ClubAdminShell({ children, theme }: Props) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center rounded-lg px-3 py-2 text-xs font-medium transition`}
+                className="flex items-center rounded-lg px-3 py-2 text-xs font-medium transition"
                 style={
                   isActive(item.href)
                     ? { background: primary, color: "white" }
-                    : { color: "var(--brand-secondary)" }
+                    : { color: primary, opacity: 0.85 }
                 }
               >
                 {item.label}
               </Link>
-            )
+            ),
           )}
 
+          {/* Signed in as */}
           {userEmail && (
-            <div className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-100">
+            <div className="mt-4 px-3 pt-3 text-[11px] text-slate-500 border-t border-slate-100">
               Signed in as
               <br />
-              <span className="font-medium text-slate-700">{userEmail}</span>
+              <span className="font-mono text-slate-700">{userEmail}</span>
             </div>
           )}
 
+          {/* Logout */}
           <button
             onClick={handleLogout}
             disabled={loggingOut}
-            className="mt-1 flex w-full items-center rounded-lg px-3 py-5 text-left text-xs hover:bg-slate-100 disabled:opacity-60"
-            style={{ color: "var(--brand-secondary)" }}
+            className="mt-1 flex w-full items-center rounded-lg px-3 py-2 text-left text-xs hover:bg-[rgba(0,0,0,0.04)] disabled:opacity-60"
+            style={{ color: primary }}
           >
             {loggingOut ? "Logging out…" : "Log out"}
           </button>
@@ -214,14 +242,17 @@ export default function ClubAdminShell({ children, theme }: Props) {
 
       {/* MAIN AREA */}
       <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 md:hidden">
+        <header
+          className="flex items-center justify-between border-b px-4 py-3 md:hidden"
+          style={{ background: secondary }}
+        >
           <div className="flex items-center gap-2">
             {theme.logoUrl ? (
               <img
                 src={theme.logoUrl}
                 alt={theme.clubName}
                 className="h-8 w-8 rounded-full border object-cover"
-                style={{ borderColor: secondary }}
+                style={{ borderColor: "rgba(0,0,0,0.08)" }}
               />
             ) : (
               <div
@@ -233,7 +264,7 @@ export default function ClubAdminShell({ children, theme }: Props) {
             )}
 
             <div>
-              <span className="text-sm font-semibold" style={{color: primary}}>
+              <span className="text-sm font-semibold" style={{ color: primary }}>
                 {theme.clubName}
               </span>
               <span className="block text-[11px] text-slate-500">Club admin</span>
@@ -243,7 +274,8 @@ export default function ClubAdminShell({ children, theme }: Props) {
           <button
             onClick={handleLogout}
             disabled={loggingOut}
-            className="text-[11px] text-slate-600 underline disabled:opacity-60"
+            className="text-[11px] underline disabled:opacity-60"
+            style={{ color: accent }}
           >
             {loggingOut ? "Logging out…" : "Log out"}
           </button>
@@ -257,13 +289,16 @@ export default function ClubAdminShell({ children, theme }: Props) {
           </div>
         )}
 
+        {/* Keep your preferred constrained layout */}
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-4 py-6 md:px-8 md:py-8">
           {children}
         </main>
 
         <footer className="border-t border-slate-200 bg-white/90">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
-            <span className="text-[11px] text-slate-400">© {year} {theme.clubName}</span>
+            <span className="text-[11px] text-slate-400">
+              © {year} {theme.clubName}
+            </span>
           </div>
         </footer>
       </div>

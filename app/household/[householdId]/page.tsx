@@ -1,4 +1,5 @@
-//app/household/[household]/page.tsx
+// app/household/[householdId]/page.tsx
+
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -133,6 +134,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     console.error('Failed to load pricing breakdown', err);
   }
 
+  // Count statuses
   const pendingCount =
     subscriptions?.filter((s: any) => s.status === 'pending').length ?? 0;
   const activeCount =
@@ -155,6 +157,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     .select('*')
     .eq('household_id', householdId);
 
+  // Map subscriptions per member
   const memberSubsMap = new Map<string, any[]>();
   (subscriptions ?? []).forEach((sub: any) => {
     const memId = sub.member?.id;
@@ -170,8 +173,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     }
 
     const memberResponses =
-      safeguardingResponses?.filter((r: any) => r.member_id === memberId) ??
-      [];
+      safeguardingResponses?.filter((r: any) => r.member_id === memberId) ?? [];
 
     const missing: string[] = [];
 
@@ -191,6 +193,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     };
   }
 
+  // Household-level safeguarding
   let householdSafeguardingComplete = true;
   (members ?? []).forEach((m: any) => {
     const status = safeguardingStatusForMember(m.id);
@@ -249,15 +252,11 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       {/* HEADER */}
       <section className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <h1
-            className="text-2xl font-semibold text-slate-900"
-            style={{ color: 'var(--brand-primary)' }}
-          >
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
             {household.name || 'Your household'}
           </h1>
           <p className="text-sm text-slate-600">
-            Step 1: add members. Step 2: complete consents.
-            Step 3: review membership and pay securely online.
+            Step 1: add members. Step 2: complete consents. Step 3: review membership and pay securely online.
           </p>
 
           <div className="space-y-1 text-xs text-slate-600">
@@ -275,9 +274,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
               {formatAddress() ? (
                 <span>{formatAddress()}</span>
               ) : (
-                <span className="italic text-slate-400">
-                  No address on file
-                </span>
+                <span className="italic text-slate-400">No address on file</span>
               )}
             </p>
           </div>
@@ -306,15 +303,11 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       <section className="space-y-3">
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
           <div>
-            <h2
-              className="text-lg font-semibold text-slate-900"
-              style={{ color: 'var(--brand-primary)' }}
-            >
+            <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
               Step 1 – Household members
             </h2>
             <p className="text-sm text-slate-600">
-              Add players, parents and other family members linked to this
-              household.
+              Add players, parents and other family members linked to this household.
             </p>
           </div>
 
@@ -341,8 +334,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           {memberCount === 0 ? (
             <p>
-              No members yet. Use{' '}
-              <span className="font-medium">Add member</span> to get started.
+              No members yet. Use <span className="font-medium">Add member</span> to get started.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -356,16 +348,12 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                   >
                     <div>
                       <div className="text-sm font-medium">
-                        {`${m.first_name ?? ''} ${
-                          m.last_name ?? ''
-                        }`.trim()}
+                        {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
                       </div>
                       <div className="text-xs text-slate-600">
                         {formatMemberType(m)}
                         {m.gender ? ` • ${m.gender}` : ''}
-                        {m.date_of_birth
-                          ? ` • DOB: ${m.date_of_birth}`
-                          : ''}
+                        {m.date_of_birth ? ` • DOB: ${m.date_of_birth}` : ''}
                       </div>
 
                       {/* Pricing engine breakdown */}
@@ -416,6 +404,16 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                         </span>
                       )}
 
+                      {/* NEW: Add membership shortcut */}
+                      {membership.status === 'none' && (
+                        <Link
+                          href={`/household/${householdId}/members/${m.id}/add-membership`}
+                          className="rounded-md bg-slate-900 px-2 py-0.5 text-xs text-white hover:bg-slate-800"
+                        >
+                          Add membership
+                        </Link>
+                      )}
+
                       <Link
                         href={`/household/${householdId}/members/${m.id}/edit`}
                         className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50"
@@ -439,10 +437,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
       {/* STEP 2 – SAFEGUARDING */}
       <section className="space-y-3">
-        <h2
-          className="text-lg font-semibold text-slate-900"
-          style={{ color: 'var(--brand-primary)' }}
-        >
+        <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
           Step 2 – Safeguarding & consents
         </h2>
         <p className="text-sm text-slate-600">
@@ -460,9 +455,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
               >
                 <div>
                   <div className="text-sm font-medium">
-                    {`${m.first_name ?? ''} ${
-                      m.last_name ?? ''
-                    }`.trim()}
+                    {`${m.first_name ?? ''} ${m.last_name ?? ''}`.trim()}
                   </div>
                   {status.missing.length > 0 && (
                     <p className="mt-1 text-xs text-amber-800">
@@ -480,8 +473,8 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                 </div>
                 <Link
                   href={`/household/${householdId}/safeguarding?member=${m.id}`}
-                  className="rounded-md px-2 py-1 text-xs text-white hover:opacity-90"
-                  style={{ background: 'var(--brand-primary)' }}
+                  className="rounded-md px-2 py-1 text-xs text-white hover:brightness-90"
+                    style={{ backgroundColor: 'var(--brand-primary)' }}
                 >
                   {status.complete ? 'View / update answers' : 'Complete now'}
                 </Link>
@@ -491,8 +484,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
           {(!members || members.length === 0) && (
             <p className="text-xs text-slate-600">
-              Add members to this household to collect safeguarding and consent
-              information.
+              Add members to this household to collect safeguarding and consent information.
             </p>
           )}
         </div>
@@ -502,15 +494,11 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2
-              className="text-lg font-semibold text-slate-900"
-              style={{ color: 'var(--brand-primary)' }}
-            >
+            <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
               Step 3 – Membership & payments
             </h2>
             <p className="text-sm text-slate-600">
-              Once consents are complete, review the membership summary below
-              and proceed to secure payment online.
+              Once consents are complete, review the membership summary below and proceed to secure payment online.
             </p>
           </div>
           <div className="text-right text-xs text-slate-600">
@@ -553,8 +541,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                     </div>
                     {sub.discount_pennies > 0 && (
                       <div className="text-[11px] text-green-700">
-                        Includes discount £
-                        {(sub.discount_pennies / 100).toFixed(2)}
+                        Includes discount £{(sub.discount_pennies / 100).toFixed(2)}
                       </div>
                     )}
                     <div className="mt-1 text-[11px] uppercase tracking-wide">
@@ -580,8 +567,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             </ul>
           ) : (
             <p className="text-sm text-slate-700">
-              No memberships started yet. Once you’ve completed consents, you’ll
-              be able to review the total and pay online.
+              No memberships started yet. Once you’ve completed consents, you’ll be able to review the total and pay online.
             </p>
           )}
 
@@ -589,8 +575,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
           {!householdSafeguardingComplete && (
             <p className="text-xs text-amber-700">
-              Complete safeguarding and consent for all members before paying
-              online.
+              Complete safeguarding and consent for all members before paying online.
             </p>
           )}
 

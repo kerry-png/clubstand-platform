@@ -122,7 +122,8 @@ export default function ResetPasswordUpdatePage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className="w-full rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          style={{ backgroundColor: 'var(--brand-primary)' }}
         >
           {submitting ? 'Updating password…' : 'Update password'}
         </button>

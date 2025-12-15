@@ -99,7 +99,8 @@ function LoginPageInner() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className="w-full rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          style={{ backgroundColor: 'var(--brand-primary)' }}
         >
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
@@ -109,6 +110,7 @@ function LoginPageInner() {
         <button
           type="button"
           className="underline underline-offset-2 hover:text-slate-900"
+          style={{ color: 'var(--brand-accent)' }}
           onClick={() => router.push('/reset-password')}
         >
           Forgotten your password?
@@ -116,6 +118,7 @@ function LoginPageInner() {
         <button
           type="button"
           className="underline underline-offset-2 hover:text-slate-900"
+          style={{ color: 'var(--brand-accent)' }}
           onClick={() => router.push('/change-password')}
         >
           Change password

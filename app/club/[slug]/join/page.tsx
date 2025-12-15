@@ -1,6 +1,8 @@
+// app/club/[slug]/join/page.tsx
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { getClubFromRequest } from '@/lib/branding/getClubFromRequest';
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -17,38 +19,23 @@ type PlanRow = {
   is_household_plan: boolean;
 };
 
-const RAINHILL_CLUB_ID = '42f3aeee-804e-4321-8cde-6b4d23fe78cc';
-
 export default async function JoinPage({ params }: PageProps) {
   const { slug } = await params;
   const supabase = await createClient();
 
-  // 1) Require login
- // const {
- //   data: { user },
- // } = await supabase.auth.getUser();
- // if (!user) {
- //   redirect(`/login?redirectTo=/club/${slug}/join`);
- // }
+  // 1) Require login (keep existing behaviour)
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // 2) Load club by slug
-  const { data: clubRow, error: clubError } = await supabase
-    .from('clubs')
-    .select('id, name, slug')
-    .eq('slug', slug)
-    .maybeSingle();
-
-  let club = clubRow;
-
-  if (!club && slug === 'rainhill') {
-    club = {
-      id: RAINHILL_CLUB_ID,
-      name: 'Rainhill Cricket Club',
-      slug,
-    } as any;
+  if (!user) {
+    redirect(`/login?redirectTo=/club/${slug}/join`);
   }
 
-  if ((clubError || !club) && slug !== 'rainhill') {
+  // 2) Load club via resolver (domain -> fallback slug)
+  const { club } = await getClubFromRequest(slug);
+
+  if (!club) {
     return (
       <main className="max-w-2xl mx-auto px-4 py-10">
         <h1
@@ -65,10 +52,11 @@ export default async function JoinPage({ params }: PageProps) {
     );
   }
 
-  // 3) Load plans
+  // 3) Load plans (unchanged)
   const { data: plans, error: plansError } = await supabase
     .from('membership_plans')
-    .select(`
+    .select(
+      `
       id,
       name,
       slug,
@@ -77,22 +65,27 @@ export default async function JoinPage({ params }: PageProps) {
       is_player_plan,
       is_junior_only,
       is_household_plan
-    `)
-    .eq('club_id', club!.id)
+    `,
+    )
+    .eq('club_id', club.id)
     .eq('is_visible_online', true)
     .order('sort_order', { ascending: true })
     .order('name', { ascending: true });
 
+  if (plansError) {
+    console.error('Error loading membership plans', plansError);
+  }
+
   const visiblePlans = (plans ?? []).filter((p: any) => !p.is_household_plan);
 
   const adultPlans = visiblePlans.filter(
-    (p) => p.is_player_plan && !p.is_junior_only
+    (p) => p.is_player_plan && !p.is_junior_only,
   );
   const juniorPlans = visiblePlans.filter(
-    (p) => p.is_player_plan && p.is_junior_only
+    (p) => p.is_player_plan && p.is_junior_only,
   );
   const socialPlans = visiblePlans.filter(
-    (p) => !p.is_player_plan && !p.is_junior_only
+    (p) => !p.is_player_plan && !p.is_junior_only,
   );
 
   const hasAny = visiblePlans.length > 0;
@@ -112,15 +105,15 @@ export default async function JoinPage({ params }: PageProps) {
           className="text-3xl font-semibold"
           style={{ color: 'var(--brand-primary)' }}
         >
-          Join {club!.name}
+          Join {club.name}
         </h1>
         <p className="text-sm text-gray-700">
           Choose the type of membership you want to start with. You&apos;ll be
           able to manage your household and add family members afterwards.
         </p>
-        {/* <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500">
           Signed in as <span className="font-mono">{user.email}</span>
-        </p> */}
+        </p>
       </header>
 
       {!hasAny && (
@@ -135,11 +128,14 @@ export default async function JoinPage({ params }: PageProps) {
           {/* Adult */}
           {adultPlans.length > 0 && (
             <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-800">
+                Adult memberships
+              </h2>
               <div className="grid gap-4 md:grid-cols-2">
-                {adultPlans.map((plan) => (
+                {adultPlans.map((plan: PlanRow) => (
                   <Link
                     key={plan.id}
-                    href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
+                    href={`/club/${club.slug}/join/details?plan=${plan.id}`}
                     className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
@@ -160,6 +156,7 @@ export default async function JoinPage({ params }: PageProps) {
                         </p>
                       )}
                     </div>
+
                     <div className="mt-4">
                       <span
                         className="inline-flex px-3 py-1 rounded-md text-xs text-white"
@@ -177,11 +174,14 @@ export default async function JoinPage({ params }: PageProps) {
           {/* Juniors */}
           {juniorPlans.length > 0 && (
             <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-800">
+                Junior memberships
+              </h2>
               <div className="grid gap-4 md:grid-cols-2">
-                {juniorPlans.map((plan) => (
+                {juniorPlans.map((plan: PlanRow) => (
                   <Link
                     key={plan.id}
-                    href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
+                    href={`/club/${club.slug}/join/details?plan=${plan.id}`}
                     className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
@@ -202,6 +202,7 @@ export default async function JoinPage({ params }: PageProps) {
                         </p>
                       )}
                     </div>
+
                     <div className="mt-4">
                       <span
                         className="inline-flex px-3 py-1 rounded-md text-xs text-white"
@@ -219,11 +220,14 @@ export default async function JoinPage({ params }: PageProps) {
           {/* Social */}
           {socialPlans.length > 0 && (
             <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-800">
+                Social memberships
+              </h2>
               <div className="grid gap-4 md:grid-cols-2">
-                {socialPlans.map((plan) => (
+                {socialPlans.map((plan: PlanRow) => (
                   <Link
                     key={plan.id}
-                    href={`/club/${club!.slug}/join/details?plan=${plan.id}`}
+                    href={`/club/${club.slug}/join/details?plan=${plan.id}`}
                     className="rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5 space-y-4"
                   >
                     <div className="space-y-1">
@@ -244,6 +248,7 @@ export default async function JoinPage({ params }: PageProps) {
                         </p>
                       )}
                     </div>
+
                     <div className="mt-4">
                       <span
                         className="inline-flex px-3 py-1 rounded-md text-xs text-white"

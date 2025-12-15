@@ -4,10 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseServerClient } from "@/lib/supabaseServer";
 
 // Cricket rule: age on 1 September before the season
-function calculateAgeOnSept1(
-  dob: string | null,
-  seasonYear: number,
-): number | null {
+function calculateAgeOnSept1(dob: string | null, seasonYear: number): number | null {
   if (!dob) return null;
   const birth = new Date(dob);
   if (isNaN(birth.getTime())) return null;
@@ -16,11 +13,7 @@ function calculateAgeOnSept1(
   const sept1 = new Date(seasonYear - 1, 8, 1);
 
   let age = sept1.getFullYear() - birth.getFullYear();
-  const birthdayThisYear = new Date(
-    sept1.getFullYear(),
-    birth.getMonth(),
-    birth.getDate(),
-  );
+  const birthdayThisYear = new Date(sept1.getFullYear(), birth.getMonth(), birth.getDate());
   if (birthdayThisYear > sept1) age -= 1;
   if (age < 0) return null;
 
@@ -49,24 +42,12 @@ export async function GET(req: Request, context: RouteContext) {
     // Handle both plain-object and Promise-style params (Next 16 quirk)
     const rawParams: any = (context as any).params;
     const resolvedParams =
-      rawParams && typeof rawParams.then === "function"
-        ? await rawParams
-        : rawParams;
+      rawParams && typeof rawParams.then === "function" ? await rawParams : rawParams;
 
     const clubId = resolvedParams?.clubId as string | undefined;
 
-    console.log("Stats route params:", {
-      rawParamsType: typeof rawParams,
-      hasThen: !!rawParams?.then,
-      resolvedParams,
-      clubId,
-    });
-
     if (!clubId) {
-      return NextResponse.json(
-        { error: "Missing clubId in route params" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Missing clubId in route params" }, { status: 400 });
     }
 
     // -----------------------------
@@ -86,14 +67,8 @@ export async function GET(req: Request, context: RouteContext) {
         .single();
 
       if (clubError) {
-        console.error(
-          "Failed to load club for active_season_year",
-          clubError,
-        );
-        return NextResponse.json(
-          { error: "Failed to load club configuration" },
-          { status: 500 },
-        );
+        console.error("Failed to load club for active_season_year", clubError);
+        return NextResponse.json({ error: "Failed to load club configuration" }, { status: 500 });
       }
 
       if (!club?.active_season_year) {
@@ -107,32 +82,31 @@ export async function GET(req: Request, context: RouteContext) {
     // -----------------------------
     // Load data
     // -----------------------------
-    const [membersRes, subsRes, questionsRes, responsesRes] =
-      await Promise.all([
-        supabase
-          .from("members")
-          .select(
-            `id, household_id, first_name, last_name, gender, date_of_birth,
-             member_type, status, is_county_player, is_district_player`,
-          )
-          .eq("club_id", clubId),
+    const [membersRes, subsRes, questionsRes, responsesRes] = await Promise.all([
+      supabase
+        .from("members")
+        .select(
+          `id, household_id, first_name, last_name, gender, date_of_birth,
+           member_type, status, is_county_player, is_district_player`,
+        )
+        .eq("club_id", clubId),
 
-        supabase
-          .from("membership_subscriptions")
-          .select("member_id, status, membership_year, start_date")
-          .eq("club_id", clubId),
+      supabase
+        .from("membership_subscriptions")
+        .select("member_id, status, membership_year, start_date")
+        .eq("club_id", clubId),
 
-        supabase
-          .from("club_consent_questions")
-          .select("id, label, is_active")
-          .eq("club_id", clubId)
-          .eq("is_active", true),
+      supabase
+        .from("club_consent_questions")
+        .select("id, label, is_active")
+        .eq("club_id", clubId)
+        .eq("is_active", true),
 
-        supabase
-          .from("member_consent_responses")
-          .select("member_id, question_id, response")
-          .eq("club_id", clubId),
-      ]);
+      supabase
+        .from("member_consent_responses")
+        .select("member_id, question_id, response")
+        .eq("club_id", clubId),
+    ]);
 
     if (membersRes.error) throw membersRes.error;
     if (subsRes.error) throw subsRes.error;
@@ -153,8 +127,7 @@ export async function GET(req: Request, context: RouteContext) {
     for (const q of questions) {
       const l = (q.label ?? "").toLowerCase();
       if (l.includes("photo") || l.includes("image")) photoIds.add(q.id);
-      if (l.includes("medical") || l.includes("health"))
-        medicalIds.add(q.id);
+      if (l.includes("medical") || l.includes("health")) medicalIds.add(q.id);
     }
 
     const photoMap = new Map<string, "yes" | "no" | "unknown">();
@@ -186,11 +159,7 @@ export async function GET(req: Request, context: RouteContext) {
     // -----------------------------
     const latestSub = new Map<
       string,
-      {
-        status: string;
-        membership_year: number;
-        start_date: string | null;
-      }
+      { status: string; membership_year: number; start_date: string | null }
     >();
 
     for (const s of subs as any[]) {
@@ -203,8 +172,7 @@ export async function GET(req: Request, context: RouteContext) {
       if (
         !existing ||
         s.membership_year > existing.membership_year ||
-        (s.membership_year === existing.membership_year &&
-          sStart > existingStart)
+        (s.membership_year === existing.membership_year && sStart > existingStart)
       ) {
         latestSub.set(memberId, {
           status: s.status,
@@ -249,23 +217,23 @@ export async function GET(req: Request, context: RouteContext) {
     });
 
     // -----------------------------
-    // Active vs inactive
+    // Active vs inactive (for member totals)
+    // NOTE: we keep your existing definition here to avoid changing headline totals.
     // -----------------------------
-    const activeMembers = transformed.filter(
-      (m) => m.status !== "inactive",
-    );
-    const inactiveMembers = transformed.filter(
-      (m) => m.status === "inactive",
-    );
+    const activeMembers = transformed.filter((m) => m.status !== "inactive");
+    const inactiveMembers = transformed.filter((m) => m.status === "inactive");
 
     const playingActive = activeMembers.filter((m) => m.is_playing);
-    const nonPlayingActive = activeMembers.filter(
-      (m) => !m.is_playing,
-    );
-    const juniors = activeMembers.filter((m) => m.is_junior);
+    const nonPlayingActive = activeMembers.filter((m) => !m.is_playing);
 
     // -----------------------------
-    // Totals (based on ACTIVE members only)
+    // Juniors should match Juniors dashboard rule:
+    // ACTIVE juniors ONLY (status === 'active')
+    // -----------------------------
+    const juniors = transformed.filter((m) => m.is_junior && m.status === "active");
+
+    // -----------------------------
+    // Totals (headline totals based on ACTIVE members only)
     // -----------------------------
     const totals = {
       totalMembers: activeMembers.length,
@@ -277,27 +245,19 @@ export async function GET(req: Request, context: RouteContext) {
 
       male: activeMembers.filter((m) => m.gender === "male").length,
       female: activeMembers.filter((m) => m.gender === "female").length,
-      other: activeMembers.filter(
-        (m) => m.gender !== "male" && m.gender !== "female",
-      ).length,
+      other: activeMembers.filter((m) => m.gender !== "male" && m.gender !== "female").length,
 
       juniors: juniors.length,
       juniorsMale: juniors.filter((m) => m.gender === "male").length,
-      juniorsFemale: juniors.filter(
-        (m) => m.gender === "female",
-      ).length,
+      juniorsFemale: juniors.filter((m) => m.gender === "female").length,
 
       countyPlayers: juniors.filter((m) => m.is_county_player).length,
-      districtPlayers: juniors.filter(
-        (m) => m.is_district_player,
-      ).length,
+      districtPlayers: juniors.filter((m) => m.is_district_player).length,
 
-      juniorsNoPhotoConsent: juniors.filter(
-        (m) => m.photo_consent !== "yes",
-      ).length,
+      juniorsNoPhotoConsent: juniors.filter((m) => m.photo_consent !== "yes").length,
     };
 
-    // Age band counts (active juniors only)
+    // Age band counts (ACTIVE juniors only)
     const bandCounts: Record<string, number> = {};
     for (const j of juniors) {
       if (!j.age_band) continue;
@@ -309,13 +269,10 @@ export async function GET(req: Request, context: RouteContext) {
       totals,
       bandCounts,
       members: transformed, // all members, including inactive
-      juniors,              // active juniors only
+      juniors, // ACTIVE juniors only (matches Juniors dashboard)
     });
   } catch (err: any) {
     console.error("Stats API error:", err);
-    return NextResponse.json(
-      { error: err?.message ?? "Failed to load stats" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: err?.message ?? "Failed to load stats" }, { status: 500 });
   }
 }

@@ -6,12 +6,7 @@ export default function ResetPasswordLayout({
 }: {
   children: ReactNode;
 }) {
-  return (
-    <html lang="en">
-      <body className="bg-slate-50">
-        {/* Simple, headerless layout just for reset-password routes */}
-        {children}
-      </body>
-    </html>
-  );
+  // Important: do NOT render <html> or <body> here.
+  // Root layout already owns them (and injects CSS vars for branding).
+  return <>{children}</>;
 }

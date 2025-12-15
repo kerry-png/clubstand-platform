@@ -93,7 +93,8 @@ export default function ResetPasswordRequestPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          className="w-full rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+          style={{ backgroundColor: 'var(--brand-primary)' }}
         >
           {submitting ? 'Sending reset link…' : 'Send reset link'}
         </button>
@@ -102,7 +103,8 @@ export default function ResetPasswordRequestPage() {
       <button
         type="button"
         onClick={() => router.push('/login')}
-        className="text-xs text-slate-600 underline underline-offset-2 hover:text-slate-900"
+        className="text-xs underline underline-offset-2 hover:text-slate-900"
+        style={{ color: 'var(--brand-accent)' }}
       >
         Back to sign in
       </button>

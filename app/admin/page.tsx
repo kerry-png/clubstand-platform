@@ -17,8 +17,8 @@ type Club = {
   name: string;
   slug: string | null;
   logo_url: string | null;
-  primary_color: string | null;
-  secondary_color: string | null;
+  primary_colour: string | null;
+  secondary_colour: string | null;
 };
 
 export default async function AdminLandingPage() {
@@ -86,7 +86,7 @@ export default async function AdminLandingPage() {
         <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600">
           If you think this is a mistake, ask your club’s super admin to
           add you on the{' '}
-          <span className="font-semibold">Admins &amp; roles</span> page.
+          <span className="font-semibold">Admins &amp; Roles</span> page.
         </section>
       </main>
     );
@@ -102,7 +102,7 @@ export default async function AdminLandingPage() {
       await supabaseServerClient
         .from('clubs')
         .select(
-          'id, name, slug, logo_url, primary_color, secondary_color',
+          'id, name, slug, logo_url, primary_colour, secondary_colour',
         )
         .in('id', clubIds);
 

@@ -1,46 +1,64 @@
+// components/AppShell.tsx
 'use client';
 
-import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import NavBar from '@/components/NavBar';
+import NavBar from './NavBar';
 
-// This helper fetches pre-resolved branding from the server via a lightweight endpoint.
-// We cannot call getClubFromRequest() directly in a client component.
-async function fetchBranding() {
-  const res = await fetch('/api/branding');
-  if (!res.ok) return null;
-  return res.json();
-}
-
-type Props = {
-  children: ReactNode;
+type Branding = {
+  primary: string;
+  secondary: string;
+  accent: string;
+  logoUrl: string | null;
+  cssVars: Record<string, string>;
 };
 
-export default function AppShell({ children }: Props) {
+export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAdminRoute = pathname?.startsWith('/admin');
+  const [branding, setBranding] = useState<Branding | null>(null);
+  const [club, setClub] = useState<any | null>(null);
 
-  // Store branding resolved on the server
-  const [branding, setBranding] = useState<any>(null);
-
-  // On mount, request branding (logo + colours)
   useEffect(() => {
-    fetchBranding().then((data) => {
-      if (data) setBranding(data);
-    });
-  }, []);
+    let cancelled = false;
 
-  // ADMIN AREA → completely white-label; no NavBar at all
-  if (isAdminRoute) {
-    return <>{children}</>;
+    async function loadBranding() {
+      try {
+        const res = await fetch(`/api/branding?path=${encodeURIComponent(pathname)}`, {
+          cache: 'no-store',
+        });
+
+        if (!res.ok) return;
+
+        const json = await res.json();
+
+        if (cancelled) return;
+
+        setBranding(json.branding ?? null);
+        setClub(json.club ?? null);
+      } catch {
+        // ignore
+      }
+    }
+
+    loadBranding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  // Apply CSS vars client-side too (helps for header components that rely on vars)
+  const cssVarObject: Record<string, string> = {};
+  if (branding?.cssVars) {
+    Object.entries(branding.cssVars).forEach(([k, v]) => {
+      cssVarObject[k] = v;
+    });
   }
 
-  // PUBLIC / MEMBER AREA → show NavBar themed with branding
   return (
-    <>
-      <NavBar branding={branding} />
+    <div style={cssVarObject as React.CSSProperties}>
+      <NavBar branding={branding} club={club} />
       {children}
-    </>
+    </div>
   );
 }

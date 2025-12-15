@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 type Props = {
   householdId: string;
@@ -12,11 +13,14 @@ export default function ProceedToPaymentButton({
   householdId,
   disabled,
 }: Props) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isDisabled = !!disabled || loading;
+
   async function handleClick() {
-    if (disabled || loading) return;
+    if (isDisabled) return;
 
     setError(null);
     setLoading(true);
@@ -28,64 +32,46 @@ export default function ProceedToPaymentButton({
         body: JSON.stringify({ householdId }),
       });
 
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch (err) {
-        console.error(
-          'Failed to parse JSON from /api/payments/checkout',
-          err,
-        );
-      }
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
         throw new Error(
           data?.error ||
             data?.details ||
-            'We could not start the payment session. Please contact the club.',
+            'Unable to start payment. Please try again.',
         );
       }
 
       const url = data?.url as string | undefined;
+      if (!url) throw new Error('Stripe session URL missing.');
 
-      if (!url) {
-        throw new Error(
-          'Payment session created, but no checkout URL was returned.',
-        );
-      }
-
-      window.location.href = url;
-    } catch (err: any) {
-      console.error('ProceedToPayment error', err);
-      setError(
-        err.message ||
-          'Something went wrong starting the payment session.',
-      );
+      router.push(url);
+    } catch (e: any) {
+      setError(e?.message || 'Payment failed to start.');
       setLoading(false);
     }
   }
 
-  const isDisabled = disabled || loading;
-
   return (
-    <div className="space-y-1">
+    <div className="flex flex-col items-end gap-1">
       <button
         type="button"
         onClick={handleClick}
         disabled={isDisabled}
-        className={`px-4 py-2 rounded text-sm text-white ${
+        className={`px-4 py-2 rounded text-sm font-medium text-white ${
           isDisabled
             ? 'bg-slate-300 text-slate-600 cursor-not-allowed'
             : 'hover:brightness-90'
         }`}
         style={
-          isDisabled
-            ? undefined
-            : { background: 'var(--brand-primary)' }
+          !isDisabled
+            ? { backgroundColor: 'var(--brand-primary)' }
+            : undefined
         }
       >
         {loading ? 'Starting secure payment…' : 'Pay online now'}
       </button>
+
       {error && <p className="text-xs text-red-700">{error}</p>}
     </div>
   );

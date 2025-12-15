@@ -22,22 +22,25 @@ export type ClubBrandingResult = {
 };
 
 /**
- * Default ClubStand branding (Option A)
+ * Default ClubStand branding (fallback when club cannot be detected)
  */
 const DEFAULT_BRANDING: ClubBranding = {
-  primary: '#0f172a', // slate-900
-  secondary: '#334155', // slate-700
-  accent: '#0ea5e9', // sky-500
+  primary: '#0B1F3A',
+  secondary: '#FFFFFF',
+  accent: '#2F6FED',
   logoUrl: null,
   cssVars: {
-    '--brand-primary': '#0f172a',
-    '--brand-secondary': '#334155',
-    '--brand-accent': '#0ea5e9',
+    '--brand-primary': '#0B1F3A',
+    '--brand-secondary': '#FFFFFF',
+    '--brand-accent': '#2F6FED',
+    '--brand-bg': '#FFFFFF',
+    '--brand-surface': '#F8FAFC',
+    '--brand-text': '#0B1F3A',
   },
 };
 
 /**
- * Normalises colour fields from the DB.
+ * Build branding object from club row.
  */
 function buildBrandingFromClub(club: any | null): ClubBranding {
   if (!club) return DEFAULT_BRANDING;
@@ -67,6 +70,9 @@ function buildBrandingFromClub(club: any | null): ClubBranding {
       '--brand-primary': primary,
       '--brand-secondary': secondary,
       '--brand-accent': accent,
+      '--brand-bg': DEFAULT_BRANDING.cssVars['--brand-bg'],
+      '--brand-surface': DEFAULT_BRANDING.cssVars['--brand-surface'],
+      '--brand-text': DEFAULT_BRANDING.cssVars['--brand-text'],
     },
   };
 }
@@ -77,74 +83,80 @@ function buildBrandingFromClub(club: any | null): ClubBranding {
 function extractSubdomain(host: string | null): string | null {
   if (!host) return null;
 
-  const clean = host.split(':')[0]; // strip port if present
+  const clean = host.split(':')[0];
   const parts = clean.split('.');
 
-  // e.g. rainhillcc.clubstand.uk → ["rainhillcc","clubstand","uk"]
   if (parts.length < 3) return null;
 
   return parts[0];
 }
 
 /**
- * Cached DB lookup.
+ * Non-cached lookup (used for admin pages so branding updates instantly)
+ */
+async function lookupUncached(
+  subdomain: string | null,
+  slug: string | null,
+): Promise<ClubBrandingResult> {
+  let club: any | null = null;
+
+  if (subdomain) {
+    const { data } = await supabaseServerClient
+      .from('clubs')
+      .select('*')
+      .eq('subdomain', subdomain)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (data) club = data;
+  }
+
+  if (!club && slug) {
+    const { data } = await supabaseServerClient
+      .from('clubs')
+      .select('*')
+      .eq('slug', slug)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (data) club = data;
+  }
+
+  if (!club) {
+    return { club: null, branding: DEFAULT_BRANDING };
+  }
+
+  return { club, branding: buildBrandingFromClub(club) };
+}
+
+/**
+ * Cached lookup (public-facing)
  */
 const cachedLookup = unstable_cache(
-  async (subdomain: string | null, slug: string | null): Promise<ClubBrandingResult> => {
-    let club: any | null = null;
-
-    // 1️⃣ Subdomain lookup
-    if (subdomain) {
-      const { data } = await supabaseServerClient
-        .from('clubs')
-        .select('*')
-        .eq('subdomain', subdomain)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (data) club = data;
-    }
-
-    // 2️⃣ Slug fallback
-    if (!club && slug) {
-      const { data } = await supabaseServerClient
-        .from('clubs')
-        .select('*')
-        .eq('slug', slug)
-        .eq('is_active', true)
-        .maybeSingle();
-
-      if (data) club = data;
-    }
-
-    // 3️⃣ Default branding
-    if (!club) {
-      return {
-        club: null,
-        branding: DEFAULT_BRANDING,
-      };
-    }
-
-    return {
-      club,
-      branding: buildBrandingFromClub(club),
-    };
-  },
+  lookupUncached,
   ['club-branding-lookup'],
-  { revalidate: 300 }
+  { revalidate: 300 },
 );
 
 /**
- * Main resolver:
- * - awaits Next headers()
- * - extracts subdomain
- * - sends to cache
+ * Main resolver
  */
-export async function getClubFromRequest(slugFromRoute?: string | null): Promise<ClubBrandingResult> {
-  const hdrs = await headers();     // 🔧 FIX: headers() is async in Next 16
-  const host = hdrs.get('host');    // Now this is safe
+export async function getClubFromRequest(
+  slugFromRoute?: string | null,
+): Promise<ClubBrandingResult> {
+  const hdrs = await headers();
+  const host = hdrs.get('host');
+  const pathname = hdrs.get('x-pathname') ?? '';
   const subdomain = extractSubdomain(host);
 
-  const result = await cachedLookup(subdomain, slugFromRoute ?? null);
-  return result;
+  // Admin & ClubStand pages should always be fresh
+  const isAdminContext =
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/clubstand');
+
+  if (isAdminContext) {
+    return lookupUncached(subdomain, slugFromRoute ?? null);
+  }
+
+  return cachedLookup(subdomain, slugFromRoute ?? null);
 }
