@@ -1,7 +1,6 @@
 // app/layout.tsx
 import './globals.css';
 import type { ReactNode } from 'react';
-import AppShell from '@/components/AppShell';
 import { getClubFromRequest } from '@/lib/branding/getClubFromRequest';
 
 export const metadata = {
@@ -32,7 +31,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           color: 'var(--brand-text)',
         }}
       >
-        <AppShell>{children}</AppShell>
+        {children}
       </body>
     </html>
   );

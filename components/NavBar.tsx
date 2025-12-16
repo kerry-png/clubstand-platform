@@ -23,6 +23,7 @@ export default function NavBar({ branding, club }: NavBarProps) {
   const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
   const [initialised, setInitialised] = useState(false);
+  const [isClubAdmin, setIsClubAdmin] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -31,9 +32,7 @@ export default function NavBar({ branding, club }: NavBarProps) {
       .getUser()
       .then(({ data, error }) => {
         if (!isMounted) return;
-        if (!error) {
-          setUser(data.user ?? null);
-        }
+        if (!error) setUser(data.user ?? null);
       })
       .finally(() => {
         if (isMounted) setInitialised(true);
@@ -52,6 +51,33 @@ export default function NavBar({ branding, club }: NavBarProps) {
     };
   }, [supabase]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNavFlags() {
+      if (!user) {
+        setIsClubAdmin(false);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/me/nav', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setIsClubAdmin(Boolean(json?.isClubAdmin));
+      } catch {
+        // ignore
+      }
+    }
+
+    loadNavFlags();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
 
@@ -64,16 +90,10 @@ export default function NavBar({ branding, club }: NavBarProps) {
     window.location.href = '/';
   };
 
-  // BRANDING LOGIC ----------------------------------------------
-
   const logoUrl = branding?.logoUrl ?? null;
 
-  // If no logo → fallback initials from club short name or name
   const fallbackInitials = (() => {
-    const text =
-      club?.short_name ??
-      club?.name ??
-      'CS';
+    const text = club?.short_name ?? club?.name ?? 'CS';
     return text
       .split(/\s+/)
       .map((w: string) => w[0])
@@ -84,18 +104,15 @@ export default function NavBar({ branding, club }: NavBarProps) {
 
   const primary = 'var(--brand-primary)';
   const secondary = 'var(--brand-secondary)';
-  const accent = 'var(--brand-accent)';
 
   return (
     <header className="border-b bg-white">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-
-        {/* LEFT SIDE — BRAND */}
+        {/* LEFT — BRAND */}
         <div className="flex items-center gap-2">
           <Link href="/" className="flex items-center gap-2">
-
-            {/* LOGO OR FALLBACK */}
             {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={logoUrl}
                 alt="Club logo"
@@ -110,70 +127,68 @@ export default function NavBar({ branding, club }: NavBarProps) {
               </span>
             )}
 
-            {/* TEXT LABELS (optional for now; can white-label fully later) */}
             <span className="flex flex-col leading-tight">
-              <span
-                className="font-semibold text-sm"
-                style={{ color: primary }}
-              >
-                {club?.name ?? 'ClubStand Membership'}
+              <span className="font-semibold text-sm" style={{ color: primary }}>
+                {club?.name ?? 'ClubStand'}
               </span>
-
               <span className="text-[11px] text-slate-500">
-                {club
-                  ? 'Powered by ClubStand'
-                  : 'One portal for every club you run.'}
+                {club ? 'Powered by ClubStand' : 'One portal for every club you run.'}
               </span>
             </span>
           </Link>
         </div>
 
-        {/* RIGHT SIDE — AUTH */}
-        <nav className="flex items-center gap-3 text-sm">
+        {/* RIGHT — NAV */}
+        <nav className="flex items-center gap-2 text-sm">
           {!initialised ? (
             <span className="text-xs text-slate-400">Loading…</span>
           ) : user ? (
             <>
-              <span className="hidden sm:inline text-xs text-slate-500">
-                Signed in as{' '}
-                <span className="font-mono text-slate-700">
-                  {user.email}
-                </span>
-              </span>
+              <div className="hidden sm:flex items-center gap-2">
+                <Link
+                  href="/household"
+                  className="px-3 py-1.5 rounded-full border text-xs sm:text-sm"
+                  style={{ borderColor: secondary }}
+                >
+                  My household
+                </Link>
 
-              <Link
-                href="/dashboard"
-                className="px-3 py-1.5 rounded-md border text-xs sm:text-sm"
-                style={{ borderColor: secondary }}
-              >
-                Dashboard
-              </Link>
+                {isClubAdmin && (
+                  <Link
+                    href="/admin"
+                    className="px-3 py-1.5 rounded-full border text-xs sm:text-sm"
+                    style={{ borderColor: secondary }}
+                  >
+                    Club admin
+                  </Link>
+                )}
+              </div>
 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="px-3 py-1.5 rounded-md text-white text-xs sm:text-sm"
+                className="px-3 py-1.5 rounded-full text-white text-xs sm:text-sm"
                 style={{ background: primary }}
               >
-                Log Out
+                Log out
               </button>
             </>
           ) : (
             <>
               <Link
                 href="/login"
-                className="px-3 py-1.5 rounded-md border text-xs sm:text-sm"
+                className="px-3 py-1.5 rounded-full border text-xs sm:text-sm"
                 style={{ borderColor: secondary }}
               >
-                Log In
+                Log in
               </Link>
 
               <Link
                 href="/signup"
-                className="px-3 py-1.5 rounded-md text-white text-xs sm:text-sm"
+                className="px-3 py-1.5 rounded-full text-white text-xs sm:text-sm"
                 style={{ background: primary }}
               >
-                Sign Up
+                Sign up
               </Link>
             </>
           )}

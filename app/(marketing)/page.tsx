@@ -1,5 +1,6 @@
 // app/(marketing)/page.tsx
 import Link from "next/link";
+import InterestFormClient from "./InterestFormClient";
 
 export default function HomePage() {
   return (
@@ -124,25 +125,7 @@ export default function HomePage() {
               </p>
             </div>
 
-            <form
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4"
-              action="mailto:hello@clubstand.co.uk"
-              method="post"
-              encType="text/plain"
-            >
-              <Field label="Club name" name="Club name" />
-              <Field label="Your name" name="Name" />
-              <Field label="Email" name="Email" type="email" />
-              <Field label="Your role" name="Role" />
-
-              <button
-                type="submit"
-                className="w-full rounded-xl px-5 py-3 text-sm font-medium text-white"
-                style={{ backgroundColor: "var(--club-primary, #2563eb)" }}
-              >
-                Register interest
-              </button>
-            </form>
+            <InterestFormClient />
           </div>
         </div>
       </section>
