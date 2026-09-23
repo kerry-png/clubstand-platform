@@ -261,7 +261,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
           <div className="space-y-1 text-xs text-slate-600">
             <p>
-              Main contact:{' '}
+              Account holder:{' '}
               <span className="font-medium">
                 {household.primary_email || 'Not set'}
               </span>
@@ -304,7 +304,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
-              Step 1 – Household members
+              Step 1 – Members on this account
             </h2>
             <p className="text-sm text-slate-600">
               Add players, parents and other family members linked to this household.

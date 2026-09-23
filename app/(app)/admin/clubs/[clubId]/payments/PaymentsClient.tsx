@@ -1,60 +1,10 @@
-// app/admin/clubs/[clubId]/payments/PaymentsClient.tsx
+// app/(app)/admin/clubs/[clubId]/payments/PaymentsClient.tsx
+
 "use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-
-type YesNoUnknown = "yes" | "no" | "unknown";
-
-type MemberWithFlags = {
-  id: string;
-  household_id: string | null;
-  first_name: string;
-  last_name: string;
-  gender: string | null;
-  date_of_birth: string | null;
-  member_type: string;
-  status: string;
-  is_county_player: boolean;
-  is_district_player: boolean;
-  age_on_1_september: number | null;
-  age_band: string | null;
-  is_junior: boolean;
-  is_playing: boolean;
-  photo_consent: YesNoUnknown;
-  medical_info: YesNoUnknown;
-  has_active_membership: boolean;
-  latest_membership_start: string | null;
-};
-
-type StatsResponse = {
-  seasonYear: number;
-  totals: {
-    totalMembers: number;
-    activeMembers: number;
-    inactiveMembers: number;
-    playingMembers: number;
-    nonPlayingMembers: number;
-    male: number;
-    female: number;
-    other: number;
-    juniors: number;
-    juniorsMale: number;
-    juniorsFemale: number;
-    countyPlayers: number;
-    districtPlayers: number;
-    juniorsNoPhotoConsent: number;
-  };
-  bandCounts: Record<string, number>;
-  members: MemberWithFlags[];
-  juniors: MemberWithFlags[];
-};
-
-type PaymentsClientProps = {
-  clubId: string;
-};
-
-type ViewFilter = "awaiting" | "paid";
+import RecordOfflinePaymentModal from "@/components/admin/RecordOfflinePaymentModal";
 
 type StripeStatus = {
   connected: boolean;
@@ -65,49 +15,57 @@ type StripeStatus = {
   details_submitted: boolean;
 };
 
-export default function PaymentsClient({ clubId }: PaymentsClientProps) {
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewFilter>("awaiting");
+type HouseholdOption = {
+  id: string;
+  name: string | null;
+  primary_email: string | null;
+  secondary_email: string | null;
+};
 
+type OfflinePaymentRow = {
+  id: string;
+  household_id: string;
+  member_id: string | null;
+  amount_pennies: number;
+  currency: string;
+  method: string;
+  reference: string | null;
+  notes: string | null;
+  paid_on: string;
+  created_at: string;
+  household: {
+    id: string;
+    name: string | null;
+    primary_email: string | null;
+  } | null;
+  member: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  } | null;
+};
+
+type PaymentsClientProps = {
+  clubId: string;
+};
+
+type MonthsFilter = 2 | 3 | 6 | 12 | "all";
+
+export default function PaymentsClient({ clubId }: PaymentsClientProps) {
   const [stripeStatus, setStripeStatus] = useState<StripeStatus | null>(null);
   const [stripeLoading, setStripeLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Offline payments
+  const [offlinePayments, setOfflinePayments] = useState<OfflinePaymentRow[]>([]);
+  const [offlinePaymentsTotal, setOfflinePaymentsTotal] = useState<number>(0);
+  const [households, setHouseholds] = useState<HouseholdOption[]>([]);
+  const [membersByHousehold, setMembersByHousehold] = useState<Record<string, any[]>>({});
+  const [offlineLoading, setOfflineLoading] = useState(true);
+  const [offlineError, setOfflineError] = useState<string | null>(null);
+  const [canEditOffline, setCanEditOffline] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
 
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/admin/clubs/${clubId}/stats`, {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          const json = await res.json().catch(() => null);
-          const msg =
-            json?.error ??
-            `Failed to load membership stats (status ${res.status})`;
-          throw new Error(msg);
-        }
-        const json = (await res.json()) as StatsResponse;
-        if (!cancelled) setStats(json);
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error("PaymentsClient stats error", err);
-          setError(err?.message ?? "Failed to load membership stats");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [clubId]);
+  const [months, setMonths] = useState<MonthsFilter>(3);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,52 +92,41 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
     };
   }, [clubId]);
 
-  const seasonYear = stats?.seasonYear;
+  async function loadOfflinePayments(nextMonths: MonthsFilter = months) {
+    setOfflineLoading(true);
+    setOfflineError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/clubs/${clubId}/offline-payments?months=${nextMonths}`,
+        { cache: "no-store" },
+      );
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Failed to load offline payments");
 
-  // Juniors who are playing, not inactive, and have / don't have active membership
-  const juniorsAwaiting = useMemo(() => {
-    if (!stats) return [];
-    return stats.members.filter(
-      (m) =>
-        m.is_junior &&
-        m.is_playing &&
-        m.status !== "inactive" &&
-        !m.has_active_membership,
-    );
-  }, [stats]);
+      setOfflinePayments((json?.offlinePayments ?? []) as OfflinePaymentRow[]);
+      setOfflinePaymentsTotal(Number(json?.offlinePaymentsTotal ?? 0));
+      setHouseholds((json?.households ?? []) as HouseholdOption[]);
+      setMembersByHousehold((json?.membersByHousehold ?? {}) as Record<string, any[]>);
+      setCanEditOffline(Boolean(json?.canEdit));
+    } catch (e: any) {
+      console.error("Offline payments load error", e);
+      setOfflineError(e?.message ?? "Failed to load offline payments");
+    } finally {
+      setOfflineLoading(false);
+    }
+  }
 
-  const juniorsPaid = useMemo(() => {
-    if (!stats) return [];
-    return stats.members.filter(
-      (m) =>
-        m.is_junior &&
-        m.is_playing &&
-        m.status !== "inactive" &&
-        m.has_active_membership,
-    );
-  }, [stats]);
-
-  const currentList = view === "awaiting" ? juniorsAwaiting : juniorsPaid;
-
-  const panelClasses =
-    view === "awaiting"
-      ? "border-amber-100 bg-amber-50"
-      : "border-emerald-100 bg-emerald-50";
-
-  const headerText =
-    view === "awaiting"
-      ? "Junior playing members awaiting membership payment"
-      : "Junior playing members with active membership";
-
-  const subText =
-    view === "awaiting"
-      ? "Players marked as active but without an active membership recorded for this season."
-      : "Players marked as active with an active membership recorded for this season.";
-
-  const emptyText =
-    view === "awaiting"
-      ? "All junior playing members currently have an active membership recorded for this season."
-      : "No junior playing members are marked as fully paid up yet.";
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (cancelled) return;
+      await loadOfflinePayments(months);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clubId, months]);
 
   const stripeBadge =
     stripeStatus?.status === "connected"
@@ -190,16 +137,37 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
       ? { text: "Action required", cls: "bg-red-100 text-red-800 border-red-200" }
       : { text: "Not connected", cls: "bg-slate-100 text-slate-800 border-slate-200" };
 
+  function formatMoneyPennies(pennies: number, currency: string) {
+    const pounds = pennies / 100;
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: (currency || "GBP").toUpperCase(),
+    }).format(pounds);
+  }
+
+  function methodLabel(method: string) {
+    const m = (method || "").toLowerCase();
+    if (m === "bacs") return "BACS";
+    if (m === "cash") return "Cash";
+    if (m === "cheque") return "Cheque";
+    return method;
+  }
+
+  const shownCount = offlinePayments.length;
+
+  const monthsLabel = useMemo(() => {
+    if (months === "all") return "All time";
+    return `Last ${months} months`;
+  }, [months]);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold text-slate-900">
-          Payments &amp; junior memberships
+          Payments
         </h1>
         <p className="text-sm text-slate-600">
-          From January onwards, use this page to see which junior players have
-          paid for the new season and who is still awaiting payment.
+          Manage Stripe connection and record offline payments (cash/BACS/cheque).
         </p>
       </header>
 
@@ -226,157 +194,178 @@ export default function PaymentsClient({ clubId }: PaymentsClientProps) {
           </div>
         ) : null}
 
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Link
             href={`/admin/clubs/${clubId}/payments/stripe`}
             className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
           >
             Manage Stripe connection
           </Link>
+
+          <Link
+            href={`/admin/clubs/${clubId}/memberships`}
+            className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
+          >
+            Go to memberships
+          </Link>
         </div>
       </section>
 
-      {/* Season + toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-slate-500">
-          Season{" "}
-          <span className="font-semibold">
-            {seasonYear ?? "—"}
-          </span>
-        </div>
+      {/* Offline payments ledger */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Offline payments</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              Record cash, BACS and cheque payments here. This does not change Stripe subscriptions.
+            </p>
 
-        <div className="flex flex-wrap gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setView("awaiting")}
-            className={`rounded-full border px-3 py-1 ${
-              view === "awaiting"
-                ? "border-amber-500 bg-amber-500 text-white"
-                : "border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            Awaiting payment ({juniorsAwaiting.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("paid")}
-            className={`rounded-full border px-3 py-1 ${
-              view === "paid"
-                ? "border-emerald-600 bg-emerald-600 text-white"
-                : "border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            Paid up ({juniorsPaid.length})
-          </button>
-        </div>
-      </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              {monthsLabel} — showing {shownCount} of {offlinePaymentsTotal}.
+            </p>
+          </div>
 
-      {loading && (
-        <p className="text-sm text-slate-600">
-          Loading membership data…
-        </p>
-      )}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800"
+              value={months}
+              onChange={(e) => setMonths((e.target.value as any) as MonthsFilter)}
+            >
+              <option value="2">Last 2 months</option>
+              <option value="3">Last 3 months</option>
+              <option value="6">Last 6 months</option>
+              <option value="12">Last 12 months</option>
+              <option value="all">All time</option>
+            </select>
 
-      {error && (
-        <p className="text-sm text-red-600">{error}</p>
-      )}
+            <button
+              type="button"
+              onClick={() => loadOfflinePayments(months)}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800"
+            >
+              Refresh
+            </button>
 
-      {!loading && !error && (
-        <>
-          {/* Main junior membership panel */}
-          <section
-            className={`rounded-xl border p-4 text-sm ${panelClasses}`}
-          >
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-900">
-                  {headerText}
-                </h2>
-                <p className="text-xs text-slate-700">{subText}</p>
-              </div>
-              <div className="text-xs font-semibold text-slate-900">
-                {currentList.length} player
-                {currentList.length === 1 ? "" : "s"}
-              </div>
-            </div>
-
-            {currentList.length > 0 ? (
-              <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 bg-white/80">
-                <table className="min-w-full text-left text-xs">
-                  <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase text-slate-700">
-                    <tr>
-                      <th className="px-3 py-2">Name</th>
-                      <th className="px-3 py-2">Age band</th>
-                      <th className="px-3 py-2">Member type</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Latest membership</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {currentList.map((m) => (
-                      <tr
-                        key={m.id}
-                        className="border-b border-slate-100 last:border-0"
-                      >
-                        <td className="px-3 py-2 align-top text-slate-950">
-                          {m.first_name} {m.last_name}
-                        </td>
-                        <td className="px-3 py-2 align-top text-slate-900">
-                          {m.age_band ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 align-top text-slate-900">
-                          {m.member_type}
-                        </td>
-                        <td className="px-3 py-2 align-top text-slate-900 capitalize">
-                          {m.status}
-                        </td>
-                        <td className="px-3 py-2 align-top text-slate-900">
-                          {m.latest_membership_start
-                            ? new Date(
-                                m.latest_membership_start,
-                              ).toLocaleDateString("en-GB", {
-                                year: "numeric",
-                                month: "short",
-                                day: "2-digit",
-                              })
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-slate-800">
-                {emptyText}
-              </p>
+            {months !== "all" && (
+              <button
+                type="button"
+                onClick={() => setMonths("all")}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-800"
+              >
+                View all
+              </button>
             )}
 
-            <p className="mt-3 text-[11px] text-slate-700">
-              This view only includes junior players marked as active. Use the
-              member admin pages for full details on households, contact
-              details and individual payment histories.
-            </p>
-          </section>
+            {canEditOffline && (
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+              >
+                Record offline payment
+              </button>
+            )}
+          </div>
+        </div>
 
-          {/* Placeholder for future Stripe / subs table */}
-          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
-            <h2 className="text-sm font-semibold text-slate-900">
-              Stripe subscriptions (coming soon)
-            </h2>
-            <p className="mt-2 text-sm text-slate-600">
-              This section will show live Stripe subscriptions, failed
-              collections and upcoming renewals once the payments endpoint is
-              wired up.
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              For now, use this junior membership view as a quick check during
-              January–April to see who has paid and who still needs setting up
-              on a plan.
-            </p>
-          </section>
-        </>
-      )}
+        {offlineLoading ? (
+          <p className="mt-3 text-xs text-slate-600">Loading offline payments…</p>
+        ) : offlineError ? (
+          <p className="mt-3 text-xs text-red-600">{offlineError}</p>
+        ) : offlinePayments.length === 0 ? (
+          <p className="mt-3 text-xs text-slate-600">
+            No offline payments recorded in this period.
+          </p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase text-slate-700">
+                <tr>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Household</th>
+                  <th className="px-3 py-2">Member</th>
+                  <th className="px-3 py-2">Method</th>
+                  <th className="px-3 py-2">Amount</th>
+                  <th className="px-3 py-2">Reference</th>
+                  <th className="px-3 py-2">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {offlinePayments.map((p) => {
+                  const householdName =
+                    p.household?.name ??
+                    p.household?.primary_email ??
+                    "Household";
+
+                  const memberName = p.member
+                    ? `${p.member.first_name} ${p.member.last_name}`
+                    : "—";
+
+                  return (
+                    <tr key={p.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2 align-top text-slate-900">
+                        {new Date(p.paid_on).toLocaleDateString("en-GB", {
+                          year: "numeric",
+                          month: "short",
+                          day: "2-digit",
+                        })}
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <Link
+                          href={`/household/${p.household_id}`}
+                          className="text-slate-900 underline decoration-slate-300 hover:decoration-slate-600"
+                        >
+                          {householdName}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-900">
+                        {memberName}
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-900">
+                        {methodLabel(p.method)}
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-900">
+                        {formatMoneyPennies(p.amount_pennies, p.currency)}
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-700">
+                        {p.reference ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 align-top text-slate-700">
+                        {p.notes ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!canEditOffline && (
+          <p className="mt-3 text-[11px] text-slate-500">
+            You can view offline payments, but you don’t have permission to record them.
+          </p>
+        )}
+      </section>
+
+      <RecordOfflinePaymentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        clubId={clubId}
+        households={households}
+        membersByHousehold={membersByHousehold}
+        onSaved={() => loadOfflinePayments(months)}
+      />
+
+      {/* Stripe payments/subscriptions placeholder */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <h2 className="text-sm font-semibold text-slate-900">
+          Stripe payments (coming soon)
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">
+          This section will show live Stripe payments, failed collections and upcoming renewals once the endpoint is wired up.
+        </p>
+      </section>
     </div>
   );
 }

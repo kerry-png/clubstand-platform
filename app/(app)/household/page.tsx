@@ -52,9 +52,9 @@ export default async function HouseholdRedirectPage() {
   // Multiple households for the same email → let them choose
   return (
     <main className="max-w-3xl mx-auto px-4 py-10 space-y-6">
-      <h1 className="text-2xl font-semibold text-slate-900">My household</h1>
+      <h1 className="text-2xl font-semibold text-slate-900">My account</h1>
       <p className="text-sm text-slate-600">
-        You’ve got more than one household linked to this email. Choose one:
+        You’ve got more than one account linked to this email. Choose one:
       </p>
 
       <div className="grid gap-3">
@@ -70,7 +70,7 @@ export default async function HouseholdRedirectPage() {
             >
               <div className="text-sm font-semibold text-slate-900">{label}</div>
               <div className="mt-1 text-xs text-slate-500">
-                Open household dashboard
+                Open account dashboard
               </div>
             </Link>
           );

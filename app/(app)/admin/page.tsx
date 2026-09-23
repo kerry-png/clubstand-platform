@@ -1,5 +1,5 @@
-// app/admin/page.tsx
-// app/admin/page.tsx
+// app/(app)/admin/page.tsx
+
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -22,7 +22,7 @@ type Club = {
 };
 
 export default async function AdminLandingPage() {
-  // 1) Check auth using SSR client (reads cookies)
+  // 1) Auth check (SSR client)
   const supabaseAuth = await createClient();
 
   const {
@@ -33,8 +33,7 @@ export default async function AdminLandingPage() {
     redirect('/login?redirectTo=/admin');
   }
 
-  // 2) Load all clubs this user is an admin for (service-role client),
-  // matching either by user_id (preferred) OR email (fallback).
+  // 2) Load admin rows (service client)
   let adminQuery = supabaseServerClient
     .from('club_admin_users')
     .select(
@@ -92,29 +91,37 @@ export default async function AdminLandingPage() {
     );
   }
 
-  // 3) Fetch club details for those club_ids (service-role client)
+  // 3) Fetch clubs
   const clubIds = admins.map((a) => a.club_id);
 
-  let clubs: Club[] = [];
+  const { data: clubRows } = await supabaseServerClient
+    .from('clubs')
+    .select(
+      'id, name, slug, logo_url, primary_colour, secondary_colour',
+    )
+    .in('id', clubIds);
 
-  if (clubIds.length > 0) {
-    const { data: clubRows, error: clubsError } =
-      await supabaseServerClient
-        .from('clubs')
-        .select(
-          'id, name, slug, logo_url, primary_colour, secondary_colour',
-        )
-        .in('id', clubIds);
-
-    if (clubsError) {
-      console.error('Error loading club details', clubsError);
-    }
-
-    clubs = (clubRows as Club[]) || [];
-  }
+  const clubs = (clubRows as Club[]) || [];
 
   function findClub(clubId: string): Club | undefined {
     return clubs.find((c) => c.id === clubId);
+  }
+
+  // 4) Check whether THIS USER already has any household
+  // (we only show the CTA if they don’t)
+  let hasAnyHousehold = false;
+
+  if (user.email) {
+    const { data: household } = await supabaseServerClient
+      .from('households')
+      .select('id')
+      .or(
+        `primary_email.ilike.${user.email},secondary_email.ilike.${user.email}`,
+      )
+      .limit(1)
+      .maybeSingle();
+
+    hasAnyHousehold = Boolean(household);
   }
 
   return (
@@ -129,6 +136,28 @@ export default async function AdminLandingPage() {
           to open its admin dashboard.
         </p>
       </section>
+
+      {/* Optional SaaS convenience */}
+      {!hasAnyHousehold && (
+        <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+          <p className="text-slate-700">
+            If you also manage your own family at this club, you can
+            create a household for yourself.
+          </p>
+          <form
+            action="/api/households/create-for-admin"
+            method="POST"
+            className="mt-3"
+          >
+            <button
+              type="submit"
+              className="inline-flex items-center rounded-full border border-slate-300 bg-white px-4 py-1.5 text-xs font-medium hover:bg-slate-100"
+            >
+              Create my account for this club
+            </button>
+          </form>
+        </section>
+      )}
 
       <section className="grid gap-4 md:grid-cols-2">
         {admins.map((admin) => {

@@ -1,6 +1,6 @@
 // app/admin/clubs/[clubId]/dashboard/page.tsx
 
-import AccessDenied from "@/app/admin/components/AccessDenied";
+import AccessDenied from "@/components/admin/AccessDenied";
 import { getCurrentAdminForClub } from "@/lib/admins";
 import { canViewDashboard } from "@/lib/permissions";
 import DashboardClient from "./DashboardClient";

@@ -1,7 +1,7 @@
 // app/admin/clubs/[clubId]/juniors/page.tsx
 
 import JuniorsDashboardClient from "./JuniorsDashboardClient";
-import AccessDenied from "@/app/admin/components/AccessDenied";
+import AccessDenied from "@/components/admin/AccessDenied";
 import { getCurrentAdminForClub } from "@/lib/admins";
 import { canViewJuniors } from "@/lib/permissions";
 

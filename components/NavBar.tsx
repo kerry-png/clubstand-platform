@@ -150,7 +150,7 @@ export default function NavBar({ branding, club }: NavBarProps) {
                   className="px-3 py-1.5 rounded-full border text-xs sm:text-sm"
                   style={{ borderColor: secondary }}
                 >
-                  My household
+                  My account
                 </Link>
 
                 {isClubAdmin && (
