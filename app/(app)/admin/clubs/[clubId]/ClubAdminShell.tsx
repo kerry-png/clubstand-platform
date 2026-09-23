@@ -102,6 +102,7 @@ export default function ClubAdminShell({ children, theme }: Props) {
 
   const navItems: NavItem[] = [
     { type: "item", href: `${basePath}/dashboard`, label: "Dashboard", key: "dashboard" },
+    { type: "item", href: `${basePath}/invitations`, label: "Invitations", key: "invitations" },
     { type: "item", href: `${basePath}/juniors`, label: "Juniors", key: "juniors" },
     { type: "item", href: `${basePath}/payments`, label: "Payments", key: "payments" },
     { type: "item", href: `${basePath}/plans`, label: "Plans & Pricing", key: "plans" },
@@ -119,6 +120,8 @@ export default function ClubAdminShell({ children, theme }: Props) {
     switch (item.key) {
       case "dashboard":
         return admin.can_view_dashboard;
+      case "invitations":
+        return admin.can_manage_members;
       case "juniors":
         return admin.can_view_juniors;
       case "payments":
