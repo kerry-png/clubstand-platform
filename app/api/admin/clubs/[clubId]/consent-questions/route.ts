@@ -2,6 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import { supabaseServerClient } from '@/lib/supabaseServer';
+import { getCurrentAdminForClub } from '@/lib/admins';
+import { canManageSafeguarding } from '@/lib/permissions';
 
 type RouteParams = {
   clubId?: string;
@@ -25,6 +27,16 @@ const VALID_APPLIES = [
   'parent',
   'household',
 ] as const;
+
+async function publishPolicyVersion(supabase:any, clubId:string, question:any) {
+  const {data:latest}=await supabase.from('club_policy_versions').select('version,label,description,question_type,applies_to,required,link_url').eq('question_id',question.id).order('version',{ascending:false}).limit(1).maybeSingle();
+  const snap={label:question.label,description:question.description??null,question_type:question.type,applies_to:question.applies_to??'all',required:question.required!==false,link_url:question.link_url??null};
+  const unchanged=latest&&latest.label===snap.label&&latest.description===snap.description&&latest.question_type===snap.question_type&&latest.applies_to===snap.applies_to&&latest.required===snap.required&&latest.link_url===snap.link_url;
+  if(unchanged)return;
+  const next=(latest?.version??0)+1;
+  const {error}=await supabase.from('club_policy_versions').insert({club_id:clubId,question_id:question.id,version:next,...snap});
+  if(error)throw error;
+}
 
 // Given the resolved params object (which may be undefined),
 // try to find a clubId, otherwise fall back to parsing the URL:
@@ -98,6 +110,11 @@ export async function GET(
     );
   }
 
+  const admin = await getCurrentAdminForClub(req, clubId!);
+  if (!admin || !canManageSafeguarding(admin)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+  }
+
   const { data, error } = await supabase
     .from('club_consent_questions')
     .select('*')
@@ -141,6 +158,11 @@ export async function POST(
       },
       { status: 400 },
     );
+  }
+
+  const admin = await getCurrentAdminForClub(req, clubId!);
+  if (!admin || !canManageSafeguarding(admin)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
   const body = await req.json();
@@ -212,6 +234,8 @@ export async function POST(
       );
     }
 
+    try { await publishPolicyVersion(supabase, clubId, data); }
+    catch (versionError:any) { return NextResponse.json({ error: 'Question saved but its policy version could not be published.', details: versionError?.message }, { status: 500 }); }
     return NextResponse.json({ question: data });
   }
 
@@ -251,6 +275,8 @@ export async function POST(
     );
   }
 
+  try { await publishPolicyVersion(supabase, clubId, data); }
+  catch (versionError:any) { return NextResponse.json({ error: 'Question saved but its policy version could not be published.', details: versionError?.message }, { status: 500 }); }
   return NextResponse.json({ question: data });
 }
 
@@ -274,6 +300,11 @@ export async function PUT(
       },
       { status: 400 },
     );
+  }
+
+  const admin = await getCurrentAdminForClub(req, clubId!);
+  if (!admin || !canManageSafeguarding(admin)) {
+    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 
   const body = await req.json();

@@ -28,6 +28,11 @@ type MembershipPlan = {
   is_player_plan?: boolean;
   is_household_plan?: boolean;
   is_junior_only?: boolean;
+  minimum_age?: number | null;
+  maximum_age?: number | null;
+  requires_approval?: boolean;
+  mid_season_treatment?: 'inherit' | 'full' | 'prorata' | 'trial' | 'manual';
+  trial_days?: number | null;
   signing_fee_pennies?: number;
   allow_discount_codes?: boolean;
   sort_order?: number | null;
@@ -177,6 +182,14 @@ export default function MembershipPlansClient({ clubId }: Props) {
           // not typed in by club admins, so we do NOT send them here.
 
           is_visible_online: plan.is_visible_online ?? true,
+          is_player_plan: plan.is_player_plan ?? true,
+          is_junior_only: plan.is_junior_only ?? false,
+          minimum_age: plan.minimum_age ?? null,
+          maximum_age: plan.maximum_age ?? null,
+          requires_approval: plan.requires_approval ?? false,
+          mid_season_treatment: plan.mid_season_treatment ?? 'inherit',
+          trial_days: plan.trial_days ?? null,
+          is_household_plan: plan.is_household_plan ?? false,
           signing_fee_pennies: plan.signing_fee_pennies ?? 0,
           allow_discount_codes: plan.allow_discount_codes ?? true,
           is_archived: plan.is_archived ?? false,
@@ -215,6 +228,11 @@ export default function MembershipPlansClient({ clubId }: Props) {
           description: '',
           is_player_plan: true,
           is_junior_only: false,
+          minimum_age: null,
+          maximum_age: null,
+          requires_approval: false,
+          mid_season_treatment: 'inherit',
+          trial_days: null,
           is_household_plan: false,
           is_visible_online: false,
 
@@ -438,6 +456,54 @@ export default function MembershipPlansClient({ clubId }: Props) {
                         placeholder="Short description shown to members"
                       />
                     </label>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Who is this membership for?
+                      </h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        These settings drive which memberships ClubStand offers during household registration.
+                      </p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={plan.is_player_plan ?? true}
+                            onChange={(e) => updatePlan(plan.id, 'is_player_plan', e.target.checked)}
+                          />
+                          <span><b className="block text-xs">Playing membership</b><span className="text-[11px] text-slate-500">Off means social / non-playing.</span></span>
+                        </label>
+                        <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={plan.is_junior_only ?? false}
+                            onChange={(e) => updatePlan(plan.id, 'is_junior_only', e.target.checked)}
+                          />
+                          <span><b className="block text-xs">Junior only</b><span className="text-[11px] text-slate-500">Uses the club's junior age rule.</span></span>
+                        </label>
+                        <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={plan.is_household_plan ?? false}
+                            onChange={(e) => updatePlan(plan.id, 'is_household_plan', e.target.checked)}
+                          />
+                          <span><b className="block text-xs">Household plan</b><span className="text-[11px] text-slate-500">One plan can cover several people.</span></span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Eligibility & joining rules</h3>
+                      <p className="mt-1 text-xs text-slate-500">Leave ages blank to use the club's normal junior/adult rule. Use an age range for plans such as U13, student or veteran memberships.</p>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <label className="text-xs font-semibold">Minimum age<input type="number" min={0} max={99} className="field mt-1" value={plan.minimum_age ?? ''} onChange={e=>updatePlan(plan.id,'minimum_age',e.target.value===''?null:Number(e.target.value))}/></label>
+                        <label className="text-xs font-semibold">Maximum age<input type="number" min={0} max={99} className="field mt-1" value={plan.maximum_age ?? ''} onChange={e=>updatePlan(plan.id,'maximum_age',e.target.value===''?null:Number(e.target.value))}/></label>
+                        <label className="text-xs font-semibold">Mid-season joining<select className="field mt-1" value={plan.mid_season_treatment ?? 'inherit'} onChange={e=>updatePlan(plan.id,'mid_season_treatment',e.target.value as MembershipPlan['mid_season_treatment'])}><option value="inherit">Use club default</option><option value="full">Full price</option><option value="prorata">Pro-rata annual price</option><option value="trial">Trial first</option><option value="manual">Club decides manually</option></select></label>
+                        <label className="text-xs font-semibold">Trial days<input type="number" min={0} max={365} className="field mt-1" disabled={(plan.mid_season_treatment ?? 'inherit')!=='trial'} value={plan.trial_days ?? ''} onChange={e=>updatePlan(plan.id,'trial_days',e.target.value===''?null:Number(e.target.value))}/></label>
+                      </div>
+                      <label className="mt-3 flex items-center gap-2 text-xs font-medium"><input type="checkbox" checked={plan.requires_approval ?? false} onChange={e=>updatePlan(plan.id,'requires_approval',e.target.checked)}/> Club approval required before this membership is activated</label>
+                      <p className="mt-3 text-[11px] text-slate-500">Administrators will also be able to authorise a recorded exception for an individual member without changing these rules for everyone else.</p>
+                    </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
                       {/* Annual */}

@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { consentAppliesTo } from '@/lib/consent/applicability';
 
 type ConsentType =
   | 'yes_no'
@@ -62,9 +63,9 @@ export default function SafeguardingStepClient({
       setLoading(true);
       setError(null);
       try {
-        // Reuse the admin GET – it already filters by club + active
+        if (!householdId) throw new Error('Household details are required.');
         const res = await fetch(
-          `/api/admin/clubs/${clubId}/consent-questions`,
+          `/api/clubs/${clubId}/consent-questions?householdId=${encodeURIComponent(householdId)}`,
         );
 
         if (!res.ok) {
@@ -100,12 +101,12 @@ export default function SafeguardingStepClient({
     return () => {
       cancelled = true;
     };
-  }, [clubId]);
+  }, [clubId, householdId]);
 
   
     useEffect(() => {
     // Only bother if we know who/which household this is for
-    if (!householdId || !memberId) return;
+    if (!householdId) return;
 
     let cancelled = false;
 
@@ -170,11 +171,10 @@ export default function SafeguardingStepClient({
   }, [householdId, memberId]);
 
 
-  // Filter questions by context
-  // For now, show all active, required questions regardless of context
+  // Only show questions that apply to this person/household context.
   const visibleQuestions = questions
     .filter((q) => q.is_active !== false)
-    .filter((q) => q.required)
+    .filter((q) => consentAppliesTo(q.applies_to, context))
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
 

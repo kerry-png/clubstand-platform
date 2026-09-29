@@ -3,35 +3,20 @@
 import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { supabaseServerClient } from '@/lib/supabaseServer';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
 
 type PageProps = {
   params: Promise<{ householdId: string; memberId: string }>;
 };
 
-function getAgeOnDate(dobIso: string, onDate: Date) {
-  const dob = new Date(dobIso);
-  if (Number.isNaN(dob.getTime())) return null;
-
-  let age = onDate.getFullYear() - dob.getFullYear();
-  const m = onDate.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && onDate.getDate() < dob.getDate())) age--;
-  return age;
-}
-
-function isJuniorForSeason(dobIso: string, membershipYear: number) {
-  const sept1 = new Date(Date.UTC(membershipYear, 8, 1));
-  const age = getAgeOnDate(dobIso, sept1);
-  if (age === null) return null;
-  return age < 18;
-}
-
 export default async function AddMembershipPage(props: PageProps) {
   const supabase = supabaseServerClient;
   const { householdId, memberId } = await props.params;
 
-  // Default to next season
-  const now = new Date();
-  const membershipYear = now.getFullYear() + 1;
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) notFound();
+
 
   const { data: household } = await supabase
     .from('households')
@@ -41,9 +26,17 @@ export default async function AddMembershipPage(props: PageProps) {
 
   if (!household) notFound();
 
+  const { data: storedSettings } = await supabase
+    .from('club_membership_settings')
+    .select('*')
+    .eq('club_id', household.club_id)
+    .maybeSingle();
+  const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedSettings ?? {}) };
+  const membershipYear = currentMembershipYear(new Date(), membershipSettings);
+
   const { data: member } = await supabase
     .from('members')
-    .select('id, first_name, last_name, date_of_birth, club_id, household_id')
+    .select('id, first_name, last_name, date_of_birth, club_id, household_id, member_type')
     .eq('id', memberId)
     .eq('household_id', householdId)
     .maybeSingle();
@@ -51,7 +44,7 @@ export default async function AddMembershipPage(props: PageProps) {
   if (!member) notFound();
 
   const juniorForSeason =
-    member.date_of_birth ? isJuniorForSeason(member.date_of_birth, membershipYear) : null;
+    member.date_of_birth ? isJunior(member.date_of_birth, membershipYear, membershipSettings) : null;
 
   // Load plans for this club
   const { data: plans } = await supabase
@@ -79,8 +72,9 @@ export default async function AddMembershipPage(props: PageProps) {
   const filteredPlans =
     (plans ?? []).filter((p: any) => {
       if (p.is_visible_online === false) return false;
-      // We only allow player plans here for now (safe + simple)
-      if (!p.is_player_plan) return false;
+      // Match the person's participation type to the plan instead of assuming everyone is a player.
+      if (member.member_type === 'player' && !p.is_player_plan) return false;
+      if (member.member_type !== 'player' && p.is_player_plan) return false;
 
       // If DOB suggests junior/adult, restrict plans to match
       if (juniorForSeason === true) return p.is_junior_only === true;
@@ -151,7 +145,7 @@ export default async function AddMembershipPage(props: PageProps) {
           <p className="text-xs text-slate-600">
             DOB: <span className="font-medium">{member.date_of_birth}</span>
             <span className="ml-2 italic text-slate-500">
-              (junior status based on age on 1st September)
+              (junior status based on the club's configured age rule)
             </span>
           </p>
         )}

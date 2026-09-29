@@ -1,7 +1,7 @@
 // app/api/households/[householdId]/members/route.ts
 
 import { NextResponse } from "next/server";
-import { supabaseServerClient } from "@/lib/supabaseServer";
+import { requireHouseholdAccess } from "@/lib/auth/householdAccess";
 
 type RouteParams = {
   householdId: string;
@@ -11,7 +11,6 @@ export async function POST(
   req: Request,
   context: { params: RouteParams } | { params: Promise<RouteParams> },
 ) {
-  const supabase = supabaseServerClient;
 
   // Next 16: params may be an object or a Promise
   const rawParams = (context as any).params;
@@ -39,6 +38,18 @@ export async function POST(
 
   const householdId = bodyHouseholdId || urlHouseholdId;
 
+  if (!clubId || !householdId) {
+    return NextResponse.json(
+      { error: "Missing clubId or householdId when adding member." },
+      { status: 400 },
+    );
+  }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const supabase = access.supabase;
+  if (access.household.club_id !== clubId) return NextResponse.json({ error: "Club mismatch." }, { status: 400 });
+
   const first_name = (member.first_name || "").trim();
   const last_name = (member.last_name || "").trim();
   const date_of_birth = member.date_of_birth || null;
@@ -46,13 +57,6 @@ export async function POST(
   const email = member.email ?? null;
   const phone = member.phone ?? null;
   const member_type = (member.member_type as string | undefined) || "player";
-
-  if (!clubId || !householdId) {
-    return NextResponse.json(
-      { error: "Missing clubId or householdId when adding member." },
-      { status: 400 },
-    );
-  }
 
   if (!first_name || !last_name) {
     return NextResponse.json(

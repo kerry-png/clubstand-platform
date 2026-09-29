@@ -2,6 +2,9 @@
 
 import { NextResponse } from "next/server";
 import { supabaseServerClient } from "@/lib/supabaseServer";
+import { getCurrentAdminForClub } from "@/lib/admins";
+import { canViewDashboard } from "@/lib/permissions";
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior as isJuniorForMembership } from "@/lib/membership/rules";
 
 // Cricket rule: age on 1 September before the season
 function calculateAgeOnSept1(dob: string | null, seasonYear: number): number | null {
@@ -50,6 +53,11 @@ export async function GET(req: Request, context: RouteContext) {
       return NextResponse.json({ error: "Missing clubId in route params" }, { status: 400 });
     }
 
+    const admin = await getCurrentAdminForClub(req, clubId);
+    if (!admin || !canViewDashboard(admin)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
     // -----------------------------
     // Determine season year
     // -----------------------------
@@ -82,6 +90,10 @@ export async function GET(req: Request, context: RouteContext) {
     // -----------------------------
     // Load data
     // -----------------------------
+    const { data: membershipSettingsRow } = await supabase
+      .from("club_membership_settings").select("*").eq("club_id", clubId).maybeSingle();
+    const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(membershipSettingsRow ?? {}) };
+
     const [membersRes, subsRes, questionsRes, responsesRes] = await Promise.all([
       supabase
         .from("members")
@@ -190,7 +202,12 @@ export async function GET(req: Request, context: RouteContext) {
       const band = calculateAgeBand(age);
 
       const isPlaying = m.member_type === "player";
-      const isJunior = band !== null && isPlaying;
+      // Membership eligibility uses the club's configured assessment date/age.
+      // Cricket age_band remains a display/team concept and is deliberately separate.
+      const juniorByMembershipRule = m.date_of_birth
+        ? isJuniorForMembership(m.date_of_birth, seasonYear, membershipSettings)
+        : null;
+      const isJunior = juniorByMembershipRule === true && isPlaying;
 
       const sub = latestSub.get(m.id as string);
 

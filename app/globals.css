@@ -24,3 +24,7 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ClubStand form primitives */
+.field { width:100%; border:1px solid rgb(203 213 225); border-radius:.65rem; padding:.65rem .75rem; background:white; font-size:.875rem; color:rgb(15 23 42); }
+.field:focus { outline:2px solid rgb(148 163 184); outline-offset:1px; }

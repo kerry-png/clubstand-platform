@@ -1,0 +1,3 @@
+// app/(app)/household/[householdId]/renew/household-forms/page.tsx
+import{notFound}from"next/navigation";import Link from"next/link";import{requireHouseholdAccess}from"@/lib/auth/householdAccess";import HouseholdFormsClient from"./HouseholdFormsClient";
+export default async function Page({params}:{params:Promise<{householdId:string}>}){const{householdId}=await params;const a=await requireHouseholdAccess(householdId);if(!a.ok)notFound();return <div className="mx-auto max-w-2xl space-y-5 px-4 py-6"><Link className="text-sm underline" href={`/household/${householdId}/renew`}>← Renewal</Link><h1 className="text-2xl font-semibold">Household forms</h1><HouseholdFormsClient clubId={a.household.club_id} householdId={householdId}/></div>}

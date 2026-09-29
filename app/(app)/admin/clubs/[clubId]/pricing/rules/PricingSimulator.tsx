@@ -1,0 +1,15 @@
+// app/(app)/admin/clubs/[clubId]/pricing/rules/PricingSimulator.tsx
+"use client";
+import{useEffect,useState}from"react";
+type Plan={id:string;name:string;price_pennies:number|null;annual_price_pennies:number|null};
+export default function PricingSimulator({clubId}:{clubId:string}){
+ const[plans,setPlans]=useState<Plan[]>([]),[qty,setQty]=useState<Record<string,number>>({}),[result,setResult]=useState<any>(null),[error,setError]=useState("");
+ useEffect(()=>{fetch(`/api/admin/clubs/${clubId}/membership-plans`).then(r=>r.json()).then(j=>setPlans(j.plans??[]))},[clubId]);
+ async function run(){setError("");const selections=Object.entries(qty).filter(([,q])=>q>0).map(([planId,quantity])=>({planId,quantity}));const r=await fetch(`/api/admin/clubs/${clubId}/pricing-simulator`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({selections})});const j=await r.json();if(!r.ok){setError(j.error);setResult(null)}else setResult(j.result)}
+ const money=(n:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format((n??0)/100);
+ return <section className="rounded-xl border-2 border-slate-300 bg-white p-4 space-y-4"><div><h2 className="text-base font-semibold">Test these rules</h2><p className="text-xs text-slate-600">Build a pretend household. Nothing is saved to a member account and no payment is taken.</p></div>
+ <div className="grid gap-2 md:grid-cols-2">{plans.map(p=><label key={p.id} className="flex items-center justify-between gap-3 rounded border p-2 text-sm"><span>{p.name}<span className="ml-2 text-xs text-slate-500">{money(p.annual_price_pennies??p.price_pennies??0)}</span></span><input aria-label={`${p.name} quantity`} className="w-16 rounded border px-2 py-1" type="number" min="0" max="20" value={qty[p.id]??0} onChange={e=>setQty(v=>({...v,[p.id]:Math.max(0,Number(e.target.value)||0)}))}/></label>)}</div>
+ <button onClick={run} className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white">Calculate example</button>{error&&<p className="text-sm text-red-700">{error}</p>}
+ {result&&<div className="rounded-lg bg-slate-50 p-4"><div className="grid gap-3 sm:grid-cols-3"><div><div className="text-xs text-slate-500">Individual prices</div><b>{money(result.baseTotalPennies)}</b></div><div><div className="text-xs text-slate-500">Rules adjustment</div><b>{money(result.adjustmentPennies)}</b></div><div><div className="text-xs text-slate-500">Household total</div><b className="text-lg">{money(result.finalTotalPennies)}</b></div></div><div className="mt-3 text-xs">{result.applied?.length?<>{result.applied.map((a:any)=><div key={a.ruleId}>{a.ruleName||a.ruleType}: {money(a.amountPennies)}</div>)}</>:<span className="text-slate-500">No pricing rules applied to this example.</span>}</div></div>}
+ </section>
+}

@@ -106,7 +106,6 @@ export default function DashboardClient({ clubId }: Props) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [seasonYear] = useState<number>(2026); // matches other areas
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +115,7 @@ export default function DashboardClient({ clubId }: Props) {
       setError(null);
       try {
         const res = await fetch(
-          `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
+          `/api/admin/clubs/${clubId}/stats`,
           { cache: "no-store" },
         );
         if (!res.ok) {
@@ -143,7 +142,7 @@ export default function DashboardClient({ clubId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [clubId, seasonYear]);
+  }, [clubId]);
 
   if (loading) {
     return (
@@ -196,7 +195,7 @@ export default function DashboardClient({ clubId }: Props) {
         </h1>
         <p className="text-sm text-slate-600">
           Snapshot of registered members and junior pathway for the{" "}
-          <span className="font-medium">{seasonYear}</span> season.
+          <span className="font-medium">{stats?.seasonYear}</span> season.
         </p>
       </header>
 

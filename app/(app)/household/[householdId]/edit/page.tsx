@@ -1,8 +1,8 @@
 // app/household/[householdId]/edit/page.tsx
 
-import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound } from 'next/navigation';
 import EditHouseholdForm from './EditHouseholdForm';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
 
 type PageParams = {
   householdId: string;
@@ -13,8 +13,6 @@ type PageProps = {
 };
 
 export default async function EditHouseholdPage(props: PageProps) {
-  const supabase = supabaseServerClient;
-
   const resolvedParams = await props.params;
   const householdId = resolvedParams.householdId;
 
@@ -28,6 +26,10 @@ export default async function EditHouseholdPage(props: PageProps) {
       </div>
     );
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return notFound();
+  const supabase = access.supabase;
 
   const { data: household, error } = await supabase
     .from('households')

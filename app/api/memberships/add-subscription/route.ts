@@ -1,7 +1,10 @@
 // app/api/memberships/add-subscription/route.ts
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear } from '@/lib/membership/rules';
+import { evaluatePlanEligibility } from '@/lib/membership/eligibility';
+import { calculateJoiningPrice } from '@/lib/membership/joiningPrice';
 
 type BillingPeriod = 'annual' | 'monthly';
 
@@ -10,29 +13,10 @@ type Payload = {
   memberId: string;
   planId: string;
   billingPeriod: BillingPeriod;
-  membershipYear: number;
+  membershipYear?: number;
 };
 
-function getAgeOnDate(dobIso: string, onDate: Date) {
-  const dob = new Date(dobIso);
-  if (Number.isNaN(dob.getTime())) return null;
-
-  let age = onDate.getFullYear() - dob.getFullYear();
-  const m = onDate.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && onDate.getDate() < dob.getDate())) age--;
-  return age;
-}
-
-function isJuniorForSeason(dobIso: string, membershipYear: number) {
-  const sept1 = new Date(Date.UTC(membershipYear, 8, 1));
-  const age = getAgeOnDate(dobIso, sept1);
-  if (age === null) return null;
-  return age < 18;
-}
-
 export async function POST(req: Request) {
-  const supabase = await createClient();
-
   let payload: Payload;
   try {
     payload = await req.json();
@@ -40,15 +24,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { householdId, memberId, planId, billingPeriod, membershipYear } =
-    payload;
+  const { householdId, memberId, planId, billingPeriod } = payload;
 
-  if (!householdId || !memberId || !planId || !membershipYear) {
+  if (!householdId || !memberId || !planId) {
     return NextResponse.json(
       { error: 'Missing required fields' },
       { status: 400 },
     );
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const supabase = access.supabase;
 
   if (billingPeriod !== 'annual' && billingPeriod !== 'monthly') {
     return NextResponse.json(
@@ -71,7 +58,7 @@ export async function POST(req: Request) {
   // Load member
   const { data: member } = await supabase
     .from('members')
-    .select('id, club_id, household_id, date_of_birth')
+    .select('id, club_id, household_id, date_of_birth, member_type')
     .eq('id', memberId)
     .eq('household_id', householdId)
     .maybeSingle();
@@ -96,6 +83,12 @@ export async function POST(req: Request) {
       club_id,
       name,
       is_junior_only,
+      is_player_plan,
+      minimum_age,
+      maximum_age,
+      requires_approval,
+      mid_season_treatment,
+      trial_days,
       allow_annual,
       allow_monthly,
       annual_price_pennies,
@@ -111,33 +104,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Plan not found' }, { status: 404 });
   }
 
-  // Enforce junior/adult rules if DOB available
-  if (member.date_of_birth) {
-    const juniorForSeason = isJuniorForSeason(member.date_of_birth, membershipYear);
-    if (juniorForSeason === null) {
-      return NextResponse.json({ error: 'Invalid date of birth' }, { status: 400 });
-    }
-
-    if (juniorForSeason && !plan.is_junior_only) {
-      return NextResponse.json(
-        {
-          error: 'Plan mismatch',
-          details: 'This member is a junior for the season. Choose a junior plan.',
-        },
-        { status: 400 },
-      );
-    }
-
-    if (!juniorForSeason && plan.is_junior_only) {
-      return NextResponse.json(
-        {
-          error: 'Plan mismatch',
-          details: 'This member is an adult for the season. Choose an adult plan.',
-        },
-        { status: 400 },
-      );
-    }
-  }
+  // Use the same club/plan eligibility rules as invitation registration.
+  const { data: settingsRow } = await supabase.from('club_membership_settings').select('*').eq('club_id', household.club_id).maybeSingle();
+  const settings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(settingsRow ?? {}) };
+  // Member-facing joins always use the club's current membership year.
+  // Future-year/admin assignments should use a separate privileged workflow.
+  const membershipYear = currentMembershipYear(new Date(), settings);
+  const eligibility = evaluatePlanEligibility({
+    dob: member.date_of_birth,
+    role: member.member_type === 'supporter' ? 'supporter' : 'player',
+    membershipYear,
+    settings,
+    plan,
+  });
+  if (!eligibility.eligible) return NextResponse.json({ error: 'Plan mismatch', details: eligibility.reason }, { status: 400 });
 
   // Validate billing period allowed and pick amount
   const allowAnnual = !!plan.allow_annual;
@@ -172,6 +152,17 @@ export async function POST(req: Request) {
     );
   }
 
+  const quote = calculateJoiningPrice({
+    fullAmountPennies: amountPennies,
+    billing: billingPeriod,
+    now: new Date(),
+    membershipYear,
+    settings,
+    planTreatment: plan.mid_season_treatment,
+    planTrialDays: plan.trial_days,
+  });
+  amountPennies = quote.amountPennies;
+
   // Prevent duplicate pending/active subs for same member/year (basic guard)
   const { data: existing } = await supabase
     .from('membership_subscriptions')
@@ -198,6 +189,10 @@ export async function POST(req: Request) {
       member_id: memberId,
       household_id: householdId,
       amount_pennies: amountPennies,
+      joining_treatment: quote.treatment,
+      trial_ends_at: quote.treatment === 'trial' && quote.trialDays > 0 ? new Date(Date.now() + quote.trialDays * 86400000).toISOString() : null,
+      requires_manual_review: quote.requiresManualReview || plan.requires_approval === true,
+      review_status: quote.requiresManualReview || plan.requires_approval === true ? 'pending' : 'not_required',
     })
     .select('id')
     .single();

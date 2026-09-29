@@ -102,39 +102,29 @@ export default function ClubAdminShell({ children, theme }: Props) {
 
   const navItems: NavItem[] = [
     { type: "item", href: `${basePath}/dashboard`, label: "Dashboard", key: "dashboard" },
+    { type: "section", label: "Membership" },
     { type: "item", href: `${basePath}/invitations`, label: "Invitations", key: "invitations" },
+    { type: "item", href: `${basePath}/members`, label: "Members & households", key: "members" },
     { type: "item", href: `${basePath}/juniors`, label: "Juniors", key: "juniors" },
     { type: "item", href: `${basePath}/payments`, label: "Payments", key: "payments" },
-    { type: "item", href: `${basePath}/plans`, label: "Plans & Pricing", key: "plans" },
-    { type: "item", href: `${basePath}/pricing/rules`, label: "Pricing Rules", key: "pricing" },
-    { type: "section", label: "Settings" },
-    { type: "item", href: `${basePath}/settings/admins`, label: "Admins & Roles", key: "admins" },
+    { type: "section", label: "Configuration" },
+    { type: "item", href: `${basePath}/membership-setup`, label: "Membership setup", key: "setup" },
+    { type: "item", href: `${basePath}/plans`, label: "Membership types & prices", key: "plans" },
+    { type: "item", href: `${basePath}/pricing/rules`, label: "Discount & pricing rules", key: "pricing" },
+    { type: "item", href: `${basePath}/safeguarding`, label: "Forms, policies & consents", key: "safeguarding" },
+    { type: "item", href: `${basePath}/settings/admins`, label: "Roles & access", key: "admins" },
   ];
 
   function canSeeNavItem(item: NavItem) {
     if (item.type === "section") return true;
     if (admin === undefined) return true;
     if (admin === null) return item.key === "dashboard";
-    if (admin.is_super_admin) return true;
 
-    switch (item.key) {
-      case "dashboard":
-        return admin.can_view_dashboard;
-      case "invitations":
-        return admin.can_manage_members;
-      case "juniors":
-        return admin.can_view_juniors;
-      case "payments":
-        return admin.can_view_payments;
-      case "plans":
-        return admin.can_manage_plans;
-      case "pricing":
-        return admin.can_manage_pricing;
-      case "admins":
-        return admin.can_manage_admins;
-      default:
-        return true;
-    }
+    // During the membership build, authenticated club admins can see the
+    // complete module navigation. Individual pages and APIs remain responsible
+    // for enforcing write/access permissions. This lets clubs understand the
+    // available configuration while we move to capability-based access.
+    return true;
   }
 
   const filteredNavItems = navItems.filter(canSeeNavItem);

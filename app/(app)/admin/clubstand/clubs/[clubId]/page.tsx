@@ -1,54 +1,9 @@
-// app/admin/clubstand/clubs/[clubId]/page.tsx
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { requirePlatformAdmin } from '@/lib/auth/requirePlatformAdmin';
-import { supabaseServerClient } from '@/lib/supabaseServer';
-import ClubBrandingEditorClient from './ui/ClubBrandingEditorClient';
-
-type Props = {
-  params: Promise<{ clubId: string }>;
-};
-
-export default async function ClubBrandingEditorPage({ params }: Props) {
-  await requirePlatformAdmin({ redirectTo: '/admin/clubstand/clubs' });
-
-  const { clubId } = await params;
-
-  const { data: club, error } = await supabaseServerClient
-    .from('clubs')
-    .select(
-      'id,name,slug,subdomain,is_active,logo_url,primary_colour,secondary_colour,accent_colour',
-    )
-    .eq('id', clubId)
-    .maybeSingle();
-
-  if (error) console.error('Error loading club', error);
-  if (!club) return notFound();
-
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1
-            className="text-2xl font-semibold"
-            style={{ color: 'var(--brand-primary)' }}
-          >
-            {club.name}
-          </h1>
-          <p className="text-sm text-slate-600">
-            Edit colours and logo. Changes apply across the site via CSS variables.
-          </p>
-        </div>
-
-        <Link
-          href="/admin/clubstand/clubs"
-          className="rounded-md border px-3 py-1.5 text-xs font-semibold"
-        >
-          Back to clubs
-        </Link>
-      </div>
-
-      <ClubBrandingEditorClient club={club} />
-    </div>
-  );
-}
+// app/(app)/admin/clubstand/clubs/[clubId]/page.tsx
+import Link from"next/link";import{notFound}from"next/navigation";import{requirePlatformAdmin}from"@/lib/auth/requirePlatformAdmin";import{supabaseServerClient as db}from"@/lib/supabaseServer";import ClubBrandingEditorClient from"./ui/ClubBrandingEditorClient";import ClubStatusButton from"./ui/ClubStatusButton";
+const money=(p:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(p/100);
+export default async function Page({params}:{params:Promise<{clubId:string}>}){await requirePlatformAdmin({redirectTo:"/admin/clubstand/clubs"});const{clubId}=await params;const[{data:club},{count:members},{count:households},{data:subs}]=await Promise.all([db.from("clubs").select("id,name,slug,subdomain,is_active,logo_url,primary_colour,secondary_colour,accent_colour,stripe_charges_enabled,stripe_onboarding_status,transaction_fee_percent").eq("id",clubId).maybeSingle(),db.from("members").select("id",{count:"exact",head:true}).eq("club_id",clubId),db.from("households").select("id",{count:"exact",head:true}).eq("club_id",clubId),db.from("membership_subscriptions").select("status,amount_pennies").eq("club_id",clubId)]);if(!club)return notFound();const active=(subs??[]).filter((x:any)=>x.status==="active"),value=active.reduce((n:number,x:any)=>n+Number(x.amount_pennies??0),0),fee=Math.round(value*Number(club.transaction_fee_percent??0)/100);
+return <div className="space-y-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><Link href="/admin/clubstand/clubs" className="text-xs underline">← All clubs</Link><h1 className="mt-1 text-2xl font-semibold">{club.name}</h1><p className="text-sm text-slate-600">{club.is_active?"Live club":"Archived club"} · {club.slug}</p></div><ClubStatusButton clubId={clubId} isActive={club.is_active}/></div>
+<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Stat l="Registered members" v={String(members??0)}/><Stat l="Household accounts" v={String(households??0)}/><Stat l="Active memberships" v={String(active.length)}/><Stat l="Est. ClubStand fees" v={money(fee)}/></div>
+<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Link href={`/admin/clubstand/clubs/${clubId}/commercial`} className="rounded-xl border bg-white p-4"><b>Commercial terms →</b><p className="text-xs text-slate-500">Platform charge, transaction fee, trial or complimentary deal.</p></Link><Link href={`/admin/clubs/${clubId}/dashboard`} className="rounded-xl border bg-white p-4"><b>Open club admin →</b><p className="text-xs text-slate-500">Members, memberships, plans and payments.</p></Link><Link href={`/admin/clubstand/clubs/${clubId}/modules`} className="rounded-xl border bg-white p-4"><b>Modules →</b><p className="text-xs text-slate-500">Control ClubStand products for this club.</p></Link><Link href={`/admin/clubs/${clubId}/payments/stripe`} className="rounded-xl border bg-white p-4"><b>Stripe →</b><p className="text-xs text-slate-500">{club.stripe_charges_enabled?"Connected":"Onboarding / not connected"}.</p></Link></div>
+<div className="max-w-2xl"><h2 className="mb-2 font-semibold">Branding & identity</h2><ClubBrandingEditorClient club={club}/></div></div>}
+function Stat({l,v}:{l:string;v:string}){return <div className="rounded-xl border bg-white p-4"><div className="text-xs text-slate-500">{l}</div><div className="text-xl font-semibold">{v}</div></div>}

@@ -1,5 +1,6 @@
 //app/admin/clubs/[clubId]/pricing/rules/page.tsx
 import PricingRulesClient from "./PricingRulesClient";
+import PricingSimulator from "./PricingSimulator";
 
 type PageProps = {
   params: Promise<{ clubId: string }>;
@@ -19,6 +20,8 @@ export default async function PricingRulesPage({ params }: PageProps) {
       </div>
 
       <PricingRulesClient clubId={clubId} />
+
+      <PricingSimulator clubId={clubId} />
     </div>
   );
 }

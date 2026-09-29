@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getCurrentAdminForClub } from "@/lib/admins";
+import { canEditPayments } from "@/lib/permissions";
 
 function getClubId(request: NextRequest, params?: { clubId?: string }) {
   // Normal case (when Next passes params properly)
@@ -33,6 +35,9 @@ export async function GET(
       { status: 400 },
     );
   }
+
+  const admin = await getCurrentAdminForClub(request, clubId);
+  if (!admin || !canEditPayments(admin)) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
 
   const { data: club, error } = await supabaseAdmin
     .from("clubs")

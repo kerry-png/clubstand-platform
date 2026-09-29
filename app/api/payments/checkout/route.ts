@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { supabaseServerClient } from '@/lib/supabaseServer';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
+import { consentAppliesTo } from '@/lib/consent/applicability';
 
 function getBaseUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
@@ -15,10 +18,15 @@ function normalisePercent(value: unknown): number {
 
 export async function POST(req: Request) {
   try {
-    const { householdId } = await req.json();
+    const { householdId, membershipYear: requestedMembershipYear, renewalCheckout } = await req.json();
 
     if (!householdId) {
       return NextResponse.json({ error: 'Missing householdId' }, { status: 400 });
+    }
+
+    const access = await requireHouseholdAccess(householdId);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // 1) Load household to get the club_id
@@ -74,20 +82,33 @@ export async function POST(req: Request) {
 
     const connectedAccountId = club.stripe_account_id as string;
 
-    // Per-club fees (subscriptions use percentage; flat fee reserved for future one-off services)
-    const feePercent = normalisePercent(club.transaction_fee_percent);
-    const flatFeePennies = Number(club.transaction_fee_flat_pennies ?? 0); // not used yet for subscriptions
+    // Commercial terms are controlled by ClubStand, not the club. During migration,
+    // legacy club fee columns remain the fallback so existing clubs are not broken.
+    const { data: commercialTerms } = await supabaseServerClient
+      .from('club_commercial_terms')
+      .select('status,membership_transaction_fee_percent')
+      .eq('club_id', clubId)
+      .maybeSingle();
+    const feePercent = normalisePercent(
+      commercialTerms?.membership_transaction_fee_percent ?? club.transaction_fee_percent,
+    );
+    const flatFeePennies = Number(club.transaction_fee_flat_pennies ?? 0); // reserved for one-off services
 
     // 2) Load pending subscriptions for this household
-    const { data: pendingSubs, error: pendingErr } = await supabaseServerClient
+    const { data: allPendingSubs, error: pendingErr } = await supabaseServerClient
       .from('membership_subscriptions')
       .select(
         `
         id,
+        member_id,
         plan_id,
         membership_year,
         amount_pennies,
         discount_pennies,
+        joining_treatment,
+        trial_ends_at,
+        requires_manual_review,
+        review_status,
         plan:membership_plans (
           id,
           name,
@@ -96,8 +117,8 @@ export async function POST(req: Request) {
           allow_monthly,
           annual_price_pennies,
           monthly_price_pennies,
-          stripe_price_id_annual,
-          stripe_price_id_monthly
+          stripe_price_id_annual_connected,
+          stripe_price_id_monthly_connected
         )
       `,
       )
@@ -112,6 +133,10 @@ export async function POST(req: Request) {
       );
     }
 
+    const pendingSubs = requestedMembershipYear
+      ? (allPendingSubs ?? []).filter((x:any) => Number(x.membership_year) === Number(requestedMembershipYear))
+      : (allPendingSubs ?? []);
+
     if (!pendingSubs || pendingSubs.length === 0) {
       return NextResponse.json(
         {
@@ -120,6 +145,64 @@ export async function POST(req: Request) {
         },
         { status: 400 },
       );
+    }
+
+    // Payment is deliberately separate from membership entitlement.
+    // Never send held/approval/trial/manual memberships to Stripe.
+    const blocked = (pendingSubs as any[]).filter((s) => {
+      const trialActive = s.joining_treatment === 'trial' &&
+        (!s.trial_ends_at || new Date(s.trial_ends_at).getTime() > Date.now());
+      return s.requires_manual_review === true ||
+        s.review_status === 'pending' ||
+        s.review_status === 'rejected' ||
+        s.joining_treatment === 'manual' ||
+        trialActive;
+    });
+    if (blocked.length) {
+      return NextResponse.json(
+        {
+          error: 'One or more memberships are not ready for payment yet. The club must finish any approval, trial or manual-price review first.',
+          code: 'membership_not_payable',
+          blocked_subscription_ids: blocked.map((s) => s.id),
+        },
+        { status: 409 },
+      );
+    }
+
+    // A renewal can be prepared ahead of time, but ordinary checkout must not
+    // silently mix a future membership year into today's payment.
+    const { data: settingsRow } = await supabaseServerClient.from('club_membership_settings').select('*').eq('club_id', clubId).maybeSingle();
+    const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(settingsRow ?? {}) };
+    const payableYear = currentMembershipYear(new Date(), membershipSettings);
+    const futureSubs = (pendingSubs as any[]).filter((s) => Number(s.membership_year) > payableYear);
+    if (futureSubs.length && !renewalCheckout) {
+      return NextResponse.json({ error: 'A future-year renewal is prepared but is not yet available through the normal payment checkout.', code: 'future_renewal_not_payable' }, { status: 409 });
+    }
+    if (renewalCheckout) {
+      const renewalYear = payableYear + 1;
+      if (Number(requestedMembershipYear) !== renewalYear) return NextResponse.json({ error: 'Invalid renewal year.' }, { status: 400 });
+      if ((pendingSubs as any[]).some((x) => Number(x.membership_year) !== renewalYear)) return NextResponse.json({ error: 'Current and renewal memberships cannot be mixed in one renewal payment.' }, { status: 409 });
+      // Renewal checkout is scoped to the people who actually have a renewal prepared.
+      // A household may include a non-member account holder or somebody who is not renewing.
+      const renewalMemberIds = new Set((pendingSubs as any[]).map((x) => x.member_id).filter(Boolean));
+      // Required current policy versions must be accepted. Historic versions do not satisfy a changed form.
+      const { data: requiredQuestions } = await supabaseServerClient.from('club_consent_questions').select('id,applies_to').eq('club_id', clubId).eq('is_active', true).eq('required', true);
+      const { data: currentVersions } = await supabaseServerClient.from('club_policy_versions').select('id,question_id,version').eq('club_id', clubId).is('retired_at', null).order('version', { ascending: false });
+      const latest = new Map<string,string>(); for (const v of currentVersions ?? []) if (!latest.has(v.question_id)) latest.set(v.question_id, v.id);
+      const { data: acceptedRows } = await supabaseServerClient.from('member_policy_acceptances').select('member_id,policy_version_id').eq('household_id', householdId).is('revoked_at', null);
+      const accepted = new Set((acceptedRows ?? []).map((x:any) => `${x.member_id ?? 'household'}:${x.policy_version_id}`));
+      const { data: renewalMembers } = await supabaseServerClient.from('members').select('id,date_of_birth,member_type').eq('household_id', householdId).eq('club_id', clubId).in('id', Array.from(renewalMemberIds) as string[]);
+      for (const q of requiredQuestions ?? []) {
+        const versionId = latest.get(q.id); if (!versionId) continue;
+        if (q.applies_to === 'household') {
+          if (!accepted.has(`household:${versionId}`)) return NextResponse.json({ error: 'Required renewal forms are still incomplete.' }, { status: 409 });
+          continue;
+        }
+        for (const m of renewalMembers ?? []) {
+          const context = m.member_type === 'supporter' ? 'parent' : m.date_of_birth && isJunior(m.date_of_birth, renewalYear, membershipSettings) === true ? 'junior' : 'adult';
+          if (consentAppliesTo(q.applies_to, context as any) && !accepted.has(`${m.id}:${versionId}`)) return NextResponse.json({ error: 'Required renewal forms are still incomplete.' }, { status: 409 });
+        }
+      }
     }
 
     const subscriptionIds = pendingSubs.map((s: any) => s.id as string);

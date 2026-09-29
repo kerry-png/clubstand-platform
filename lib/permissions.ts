@@ -2,7 +2,9 @@
 
 // Temporary global switch so we can wire permissions everywhere
 // without locking ourselves out while auth is disabled.
-export const PERMISSIONS_DISABLED = true;
+// Secure by default. A developer may explicitly opt out locally while wiring auth.
+export const PERMISSIONS_DISABLED =
+  process.env.CLUBSTAND_DISABLE_PERMISSIONS === 'true';
 
 export type ClubAdminUser = {
   id: string;
@@ -30,8 +32,7 @@ export type ClubAdminUser = {
 
 /**
  * Core permission helper.
- * For now, if PERMISSIONS_DISABLED is true, this always returns true
- * so nothing in the app breaks while we wire things up.
+ * Permissions are enforced by default. The development bypass is explicit and opt-in.
  */
 function allow(
   admin: ClubAdminUser | null,

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 type Props = {
   householdId: string;
+  seasonYear?: number;
 };
 
 type AppliedRule = {
@@ -52,7 +53,7 @@ function labelRuleType(t: AppliedRule["ruleType"]) {
   }
 }
 
-export default function HouseholdPricingPreview({ householdId }: Props) {
+export default function HouseholdPricingPreview({ householdId, seasonYear = new Date().getFullYear() }: Props) {
   const [data, setData] = useState<PricingApiResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +68,7 @@ export default function HouseholdPricingPreview({ householdId }: Props) {
 
       try {
         const res = await fetch(
-          `/api/households/${householdId}/pricing?seasonYear=2026&refresh=${refreshKey}`,
+          `/api/households/${householdId}/pricing?seasonYear=${seasonYear}&refresh=${refreshKey}`,
           {
             method: "GET",
             headers: { Accept: "application/json" },
@@ -109,14 +110,14 @@ export default function HouseholdPricingPreview({ householdId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [householdId, refreshKey]);
+  }, [householdId, seasonYear, refreshKey]);
 
   const handleRecalculate = () => setRefreshKey((k) => k + 1);
 
   if (loading && !data && !error) {
     return (
       <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-        Calculating your 2026 membership based on everyone in this household…
+        Calculating your membership based on everyone in this household…
       </div>
     );
   }
@@ -146,7 +147,7 @@ export default function HouseholdPricingPreview({ householdId }: Props) {
     );
   }
 
-  const { seasonYear, baseTotalPennies, finalTotalPennies, applied } = data;
+  const { baseTotalPennies, finalTotalPennies, applied } = data;
 
   return (
     <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 space-y-2">

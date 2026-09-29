@@ -1,6 +1,6 @@
 // app/api/households/[householdId]/members/[memberId]/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseServerClient } from '@/lib/supabaseServer';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
 
 type RouteParams = {
   householdId: string;
@@ -13,8 +13,6 @@ export async function PATCH(
     | { params: RouteParams }
     | { params: Promise<RouteParams> },
 ) {
-  const supabase = supabaseServerClient;
-
   // Next 16: params may be a Promise
   const rawParams: any = (context as any).params;
   const resolvedParams: RouteParams = rawParams?.then
@@ -30,6 +28,10 @@ export async function PATCH(
       { status: 400 },
     );
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const supabase = access.supabase;
 
   let body: any;
   try {
@@ -50,6 +52,7 @@ export async function PATCH(
     member_type,
     email,
     phone,
+    relationship_to_account_holder,
   } = body ?? {};
 
   if (!first_name || !last_name) {
@@ -78,6 +81,13 @@ export async function PATCH(
   }
   if (typeof phone !== 'undefined') {
     updateData.phone = phone;
+  }
+  if (typeof relationship_to_account_holder !== 'undefined') {
+    const allowedRelationships = new Set(['self','spouse_partner','child','parent_guardian','grandchild','other']);
+    if (relationship_to_account_holder && !allowedRelationships.has(relationship_to_account_holder)) {
+      return NextResponse.json({ error: 'Invalid household relationship' }, { status: 400 });
+    }
+    updateData.relationship_to_account_holder = relationship_to_account_holder || null;
   }
 
   const { data, error } = await supabase
@@ -109,8 +119,6 @@ export async function DELETE(
     | { params: RouteParams }
     | { params: Promise<RouteParams> },
 ) {
-  const supabase = supabaseServerClient;
-
   // Next 16: params may be a Promise
   const rawParams: any = (context as any).params;
   const resolvedParams: RouteParams = rawParams?.then
@@ -126,6 +134,10 @@ export async function DELETE(
       { status: 400 },
     );
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const supabase = access.supabase;
 
   // 1) Load member to confirm it belongs to this household
   const { data: member, error: memberError } = await supabase

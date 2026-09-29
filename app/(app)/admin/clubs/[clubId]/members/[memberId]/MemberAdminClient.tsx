@@ -81,8 +81,6 @@ export default function MemberAdminClient({
   const [statusSave, setStatusSave] = useState<SaveState>("idle");
   const [flagsSave, setFlagsSave] = useState<SaveState>("idle");
 
-  // For now we hard-code 2026 to match the dashboards
-  const [seasonYear] = useState<number>(2026);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,7 +91,7 @@ export default function MemberAdminClient({
 
       try {
         const res = await fetch(
-          `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
+          `/api/admin/clubs/${clubId}/stats`,
           { cache: "no-store" },
         );
 
@@ -138,12 +136,12 @@ export default function MemberAdminClient({
     return () => {
       cancelled = true;
     };
-  }, [clubId, memberId, seasonYear]);
+  }, [clubId, memberId]);
 
   const refreshFromStats = async () => {
     try {
       const res = await fetch(
-        `/api/admin/clubs/${clubId}/stats?year=${seasonYear}`,
+        `/api/admin/clubs/${clubId}/stats`,
         { cache: "no-store" },
       );
       if (!res.ok) return;

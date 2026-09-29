@@ -1,35 +1,7 @@
 // app/invitation/[invitationId]/register/page.tsx
-
-type PageProps = {
-  params: Promise<{ invitationId: string }>;
-  searchParams: Promise<{ token?: string | string[] }>;
-};
-
-export default async function RegistrationPage({
-  params,
-  searchParams,
-}: PageProps) {
-  const { invitationId } = await params;
-  const query = await searchParams;
-  const token = Array.isArray(query.token) ? query.token[0] : query.token;
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-      <section className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Create your account
-        </h1>
-
-        <p className="mt-3 text-slate-600">
-          Registration page connected successfully.
-        </p>
-
-        <p className="mt-4 text-xs text-slate-400">
-          Invitation: {invitationId}
-          <br />
-          Secure token: {token ? 'Received' : 'Missing'}
-        </p>
-      </section>
-    </main>
-  );
-}
+import { createHash } from 'node:crypto';
+import { supabaseServerClient } from '@/lib/supabaseServer';
+import RegistrationJourney from './RegistrationJourney';
+type PageProps={params:Promise<{invitationId:string}>;searchParams:Promise<{token?:string|string[]}>};
+export default async function RegistrationPage({params,searchParams}:PageProps){const {invitationId}=await params;const q=await searchParams;const token=Array.isArray(q.token)?q.token[0]:q.token;if(!token)return <Message text="This registration link is incomplete."/>;const hash=createHash('sha256').update(token).digest('hex');const {data}=await supabaseServerClient.from('membership_invitations').select(`id,account_holder_first_name,account_holder_last_name,email,status,expires_at,club:clubs(id,name,primary_colour)`).eq('id',invitationId).eq('token_hash',hash).maybeSingle();if(!data)return <Message text="This registration link is not valid."/>;const inv=data as any;if(inv.status==='revoked'||inv.status==='expired'||new Date(inv.expires_at).getTime()<=Date.now())return <Message text="This invitation is no longer available. Ask the club for a new invitation."/>;return <RegistrationJourney invitationId={inv.id} token={token} clubId={inv.club?.id} clubName={inv.club?.name||'your club'} firstName={inv.account_holder_first_name} lastName={inv.account_holder_last_name} email={inv.email} primary={inv.club?.primary_colour||'#0f172a'}/>}
+function Message({text}:{text:string}){return <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6"><div className="rounded-2xl border bg-white p-8 text-center"><h1 className="text-xl font-semibold">Registration</h1><p className="mt-2 text-sm text-slate-600">{text}</p></div></main>}

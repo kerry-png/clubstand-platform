@@ -2,10 +2,12 @@
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound, redirect } from 'next/navigation';
 import SafeguardingStepClient from '@/components/safeguarding/SafeguardingStepClient';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
 
 type PageProps = {
   params: Promise<{ householdId: string }>;
-  searchParams: Promise<{ member?: string }>;
+  searchParams: Promise<{ member?: string; returnTo?: string }>;
 };
 
 export default async function HouseholdSafeguardingPage({
@@ -13,11 +15,14 @@ export default async function HouseholdSafeguardingPage({
   searchParams,
 }: PageProps) {
   const { householdId } = await params;
-  const { member: memberId } = await searchParams;
+  const { member: memberId, returnTo } = await searchParams;
 
   if (!memberId) {
     return redirect(`/household/${householdId}?setup=1`);
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return notFound();
 
   const supabase = supabaseServerClient;
 
@@ -38,6 +43,7 @@ export default async function HouseholdSafeguardingPage({
     .from('members')
     .select('id, first_name, last_name, date_of_birth, member_type')
     .eq('id', memberId)
+    .eq('household_id', householdId)
     .maybeSingle();
 
   if (memberError || !member) {
@@ -50,13 +56,15 @@ export default async function HouseholdSafeguardingPage({
 
   if (member.member_type === 'supporter') {
     context = 'parent';
-  } else {
-    const dob = member.date_of_birth ? new Date(member.date_of_birth) : null;
-    if (dob) {
-      const age =
-        (Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-      if (age < 18) context = 'junior';
-    }
+  } else if (member.date_of_birth) {
+    const { data: storedSettings } = await supabase
+      .from('club_membership_settings')
+      .select('*')
+      .eq('club_id', household.club_id)
+      .maybeSingle();
+    const settings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedSettings ?? {}) };
+    const year = currentMembershipYear(new Date(), settings);
+    if (isJunior(member.date_of_birth, year, settings) === true) context = 'junior';
   }
 
   return (
@@ -82,10 +90,10 @@ export default async function HouseholdSafeguardingPage({
       <p className="text-xs text-slate-500 mt-2">
         When you’ve finished, you can{' '}
         <a
-          href={`/household/${householdId}?setup=1`}
+          href={returnTo === 'renew' ? `/household/${householdId}/renew` : `/household/${householdId}?setup=1`}
           className="underline underline-offset-2"
         >
-          return to your household dashboard
+          {returnTo === 'renew' ? 'return to renewal' : 'return to your household dashboard'}
         </a>
         .
       </p>

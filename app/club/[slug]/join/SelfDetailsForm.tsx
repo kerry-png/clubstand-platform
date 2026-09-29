@@ -11,29 +11,6 @@ type Props = {
   defaultEmail: string;
 };
 
-function getAgeOnDate(dobIso: string, onDate: Date) {
-  const dob = new Date(dobIso);
-  if (Number.isNaN(dob.getTime())) return null;
-
-  let age = onDate.getFullYear() - dob.getFullYear();
-  const m = onDate.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && onDate.getDate() < dob.getDate())) {
-    age--;
-  }
-  return age;
-}
-
-// Cricket rule: age group based on age on 1st September for the season
-function isJuniorForSeason(dobIso: string, membershipYear: number) {
-  // season year is membershipYear (e.g. 2026 season)
-  const sept1 = new Date(Date.UTC(membershipYear, 8, 1)); // month 8 = September
-  const age = getAgeOnDate(dobIso, sept1);
-  if (age === null) return null;
-
-  // Junior = under 18 on 1st Sept of that season (adjust if you use a different cutoff)
-  return age < 18;
-}
-
 export default function SelfDetailsForm({
   clubId,
   planId,
@@ -67,30 +44,7 @@ export default function SelfDetailsForm({
       return;
     }
 
-    // Membership year (kept as you already do it today)
-    const now = new Date();
-    const membershipYear = now.getFullYear() + 1;
-
-    // Guardrail: junior/adult mismatch (based on 1st Sept rule)
-    const juniorForSeason = isJuniorForSeason(dob, membershipYear);
-    if (juniorForSeason === null) {
-      setFormError('Please enter a valid date of birth.');
-      return;
-    }
-
-    if (juniorForSeason && !isJuniorPlan) {
-      setFormError(
-        'This date of birth looks like a junior for this season. Please go back and choose a junior membership.',
-      );
-      return;
-    }
-
-    if (!juniorForSeason && isJuniorPlan) {
-      setFormError(
-        'This date of birth looks like an adult for this season. Please go back and choose an adult membership.',
-      );
-      return;
-    }
+    // Eligibility and membership year are validated server-side from the club's settings.
 
     // For now, align billing period to the plan type
     // (we can make this user-selectable later using allow_annual/allow_monthly)
@@ -107,7 +61,6 @@ export default function SelfDetailsForm({
           planId,
           userEmail: email,
           billingPeriod,
-          membershipYear,
           member: {
             first_name: firstName.trim(),
             last_name: lastName.trim(),
@@ -193,7 +146,7 @@ export default function SelfDetailsForm({
             onChange={(e) => setDob(e.target.value)}
           />
           <p className="mt-1 text-xs text-slate-500">
-            Junior age groups are based on age on 1st September for the season.
+            Junior eligibility is based on the age rules set by your club.
           </p>
         </div>
 

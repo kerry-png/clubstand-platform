@@ -1,6 +1,6 @@
 // app/api/households/[householdId]/route.ts
 import { NextResponse } from 'next/server';
-import { supabaseServerClient } from '@/lib/supabaseServer';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
 
 type RouteParams = {
   householdId: string;
@@ -10,8 +10,6 @@ export async function PATCH(
   req: Request,
   context: { params: RouteParams } | { params: Promise<RouteParams> },
 ) {
-  const supabase = supabaseServerClient;
-
   // Next 16: params may be a plain object or a Promise – handle both
   const rawParams: any = (context as any).params;
   const resolvedParams: RouteParams = rawParams?.then
@@ -29,6 +27,12 @@ export async function PATCH(
       { status: 400 },
     );
   }
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+  const supabase = access.supabase;
 
   let body: any;
   try {

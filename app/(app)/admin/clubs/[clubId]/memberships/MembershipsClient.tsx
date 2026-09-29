@@ -1,222 +1,32 @@
 // app/(app)/admin/clubs/[clubId]/memberships/MembershipsClient.tsx
-
 "use client";
-
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type YesNoUnknown = "yes" | "no" | "unknown";
-
-type MemberWithFlags = {
-  id: string;
-  household_id: string | null;
-  first_name: string;
-  last_name: string;
-  member_type: string;
-  status: string;
-  age_band: string | null;
-  is_junior: boolean;
-  is_playing: boolean;
-  has_active_membership: boolean;
-  latest_membership_start: string | null;
-  photo_consent: YesNoUnknown;
-  medical_info: YesNoUnknown;
-};
-
-type StatsResponse = {
-  seasonYear: number;
-  members: MemberWithFlags[];
-};
-
-type Props = { clubId: string };
-
-type ViewFilter = "noMembership" | "hasMembership";
-
-export default function MembershipsClient({ clubId }: Props) {
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewFilter>("noMembership");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/admin/clubs/${clubId}/stats`, { cache: "no-store" });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(json?.error ?? "Failed to load membership data");
-        if (!cancelled) setStats(json as StatsResponse);
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Failed to load membership data");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [clubId]);
-
-  const seasonYear = stats?.seasonYear ?? "—";
-
-  // Junior playing members only (same intent as before, but now on the right page)
-  const juniorsWithoutMembership = useMemo(() => {
-    if (!stats) return [];
-    return stats.members.filter(
-      (m) =>
-        m.is_junior &&
-        m.is_playing &&
-        m.status !== "inactive" &&
-        !m.has_active_membership,
-    );
-  }, [stats]);
-
-  const juniorsWithMembership = useMemo(() => {
-    if (!stats) return [];
-    return stats.members.filter(
-      (m) =>
-        m.is_junior &&
-        m.is_playing &&
-        m.status !== "inactive" &&
-        m.has_active_membership,
-    );
-  }, [stats]);
-
-  const currentList = view === "noMembership" ? juniorsWithoutMembership : juniorsWithMembership;
-
-  const headerText =
-    view === "noMembership"
-      ? `Junior players without a membership recorded (Season ${seasonYear})`
-      : `Junior players with a membership recorded (Season ${seasonYear})`;
-
-  const subText =
-    view === "noMembership"
-      ? "These players do not currently have a membership recorded for this season. Payment may already have been received (including offline payments)."
-      : "These players currently have a membership recorded for this season.";
-
-  const emptyText =
-    view === "noMembership"
-      ? "All junior playing members currently have a membership recorded for this season."
-      : "No junior playing members have a membership recorded for this season yet.";
-
-  return (
-    <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Memberships
-        </h1>
-        <p className="text-sm text-slate-600">
-          Membership entitlement and season checks. Payments are managed on the Payments page.
-        </p>
-
-        <div className="mt-3">
-          <Link
-            href={`/admin/clubs/${clubId}/payments`}
-            className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800"
-          >
-            Go to payments
-          </Link>
-        </div>
-      </header>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-slate-500">
-          Season <span className="font-semibold">{seasonYear}</span>
-        </div>
-
-        <div className="flex flex-wrap gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setView("noMembership")}
-            className={`rounded-full border px-3 py-1 ${
-              view === "noMembership"
-                ? "border-amber-500 bg-amber-500 text-white"
-                : "border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            No membership recorded ({juniorsWithoutMembership.length})
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setView("hasMembership")}
-            className={`rounded-full border px-3 py-1 ${
-              view === "hasMembership"
-                ? "border-emerald-600 bg-emerald-600 text-white"
-                : "border-slate-200 bg-white text-slate-700"
-            }`}
-          >
-            Membership recorded ({juniorsWithMembership.length})
-          </button>
-        </div>
-      </div>
-
-      {loading && <p className="text-sm text-slate-600">Loading membership data…</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      {!loading && !error && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">{headerText}</h2>
-              <p className="text-xs text-slate-600">{subText}</p>
-            </div>
-            <div className="text-xs font-semibold text-slate-900">
-              {currentList.length} player{currentList.length === 1 ? "" : "s"}
-            </div>
-          </div>
-
-          {currentList.length > 0 ? (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
-              <table className="min-w-full text-left text-xs">
-                <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase text-slate-700">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Age band</th>
-                    <th className="px-3 py-2">Member type</th>
-                    <th className="px-3 py-2">Latest membership</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currentList.map((m) => (
-                    <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-3 py-2 align-top text-slate-950">
-                        {m.first_name} {m.last_name}
-                      </td>
-                      <td className="px-3 py-2 align-top text-slate-900">
-                        {m.age_band ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 align-top text-slate-900">
-                        {m.member_type}
-                      </td>
-                      <td className="px-3 py-2 align-top text-slate-900">
-                        {m.latest_membership_start
-                          ? new Date(m.latest_membership_start).toLocaleDateString("en-GB", {
-                              year: "numeric",
-                              month: "short",
-                              day: "2-digit",
-                            })
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="mt-3 text-xs text-slate-700">{emptyText}</p>
-          )}
-
-          <p className="mt-3 text-[11px] text-slate-500">
-            This view is membership entitlement only. It does not infer payment status.
-          </p>
-        </section>
-      )}
-    </div>
-  );
+type Member={id:string;first_name:string;last_name:string;member_type:string;status:string;age_band:string|null;is_junior:boolean;is_playing:boolean;has_active_membership:boolean;latest_membership_start:string|null};
+type Stats={seasonYear:number;members:Member[]};
+type Review={id:string;status:string;membership_year:number;amount_pennies:number|null;joining_treatment:string|null;trial_ends_at:string|null;requires_manual_review:boolean;review_status:string;reviewed_at:string|null;review_note:string|null;member:{id:string;first_name:string;last_name:string;date_of_birth:string|null;member_type:string}|null;plan:{id:string;name:string}|null};
+export default function MembershipsClient({clubId}:{clubId:string}){
+ const [stats,setStats]=useState<Stats|null>(null),[reviews,setReviews]=useState<Review[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null),[view,setView]=useState<"review"|"missing"|"current">("review");
+ const load=useCallback(async()=>{setLoading(true);setError(null);try{const [a,b]=await Promise.all([fetch(`/api/admin/clubs/${clubId}/stats`,{cache:"no-store"}),fetch(`/api/admin/clubs/${clubId}/membership-reviews`,{cache:"no-store"})]);const aj=await a.json(),bj=await b.json();if(!a.ok)throw new Error(aj?.error||"Failed to load memberships");if(!b.ok)throw new Error(bj?.error||"Failed to load review queue");setStats(aj);setReviews(bj.reviews??[])}catch(e:any){setError(e?.message||"Failed to load memberships")}finally{setLoading(false)}},[clubId]);
+ useEffect(()=>{load()},[load]);
+ const active=useMemo(()=>stats?.members.filter(m=>m.status!=="inactive")??[],[stats]);
+ const missing=active.filter(m=>!m.has_active_membership), current=active.filter(m=>m.has_active_membership), pending=reviews.filter(r=>r.review_status==="pending"&&r.requires_manual_review);
+ async function decide(r:Review,decision:"approved"|"rejected"){const note=window.prompt(`${decision==="approved"?"Approve":"Reject"} ${r.member?.first_name??"this membership"} — add a short reason:`);if(!note?.trim())return;const res=await fetch(`/api/admin/clubs/${clubId}/membership-reviews`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({subscriptionId:r.id,decision,note})});const j=await res.json().catch(()=>null);if(!res.ok){alert(j?.error||"Could not save decision");return}await load()}
+ const list=view==="missing"?missing:current;
+ return <div className="space-y-6">
+  <header><h1 className="text-2xl font-semibold text-slate-900">Memberships</h1><p className="text-sm text-slate-600">Review exceptions and approvals, then manage membership entitlement. Payments are kept separately.</p><div className="mt-3"><Link href={`/admin/clubs/${clubId}/payments`} className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium">Go to payments</Link></div></header>
+  <div className="flex flex-wrap gap-2 text-xs">
+   <button onClick={()=>setView("review")} className={`rounded-full border px-3 py-1 ${view==="review"?"bg-slate-900 text-white":"bg-white"}`}>Needs review ({pending.length})</button>
+   <button onClick={()=>setView("missing")} className={`rounded-full border px-3 py-1 ${view==="missing"?"bg-slate-900 text-white":"bg-white"}`}>No membership ({missing.length})</button>
+   <button onClick={()=>setView("current")} className={`rounded-full border px-3 py-1 ${view==="current"?"bg-slate-900 text-white":"bg-white"}`}>Membership recorded ({current.length})</button>
+  </div>
+  {loading&&<p className="text-sm text-slate-600">Loading…</p>}{error&&<p className="text-sm text-red-600">{error}</p>}
+  {!loading&&!error&&view==="review"&&<section className="rounded-xl border bg-white p-4"><h2 className="font-semibold">Memberships needing a decision</h2><p className="mt-1 text-xs text-slate-600">These were held because the plan requires approval or the joining rules require manual review. Decisions are recorded with the administrator and reason.</p>
+   {pending.length===0?<p className="mt-4 text-sm text-slate-600">Nothing is waiting for review.</p>:<div className="mt-4 space-y-3">{pending.map(r=><div key={r.id} className="rounded-lg border p-3 text-sm"><div className="flex flex-wrap justify-between gap-3"><div><div className="font-medium">{r.member?.first_name} {r.member?.last_name}</div><div className="text-xs text-slate-600">{r.plan?.name??"Membership"} · {r.membership_year} · {r.joining_treatment??"standard"}</div></div><div className="flex gap-2"><button onClick={()=>decide(r,"approved")} className="rounded-lg border px-3 py-1.5 text-xs font-medium">Approve</button><button onClick={()=>decide(r,"rejected")} className="rounded-lg border px-3 py-1.5 text-xs font-medium text-red-700">Reject</button></div></div></div>)}</div>}
+  </section>}
+  {!loading&&!error&&view!=="review"&&<section className="rounded-xl border bg-white p-4"><div className="flex justify-between"><div><h2 className="font-semibold">{view==="missing"?"People without a membership":"People with a membership"}</h2><p className="text-xs text-slate-600">Membership year {stats?.seasonYear??"—"}. Includes playing and non-playing members.</p></div><b className="text-sm">{list.length}</b></div>
+   {list.length===0?<p className="mt-4 text-sm text-slate-600">No people in this view.</p>:<div className="mt-3 overflow-x-auto"><table className="min-w-full text-xs"><thead><tr className="border-b bg-slate-50 text-left"><th className="p-2">Name</th><th className="p-2">Type</th><th className="p-2">Age band</th><th className="p-2">Latest membership</th></tr></thead><tbody>{list.map(m=><tr key={m.id} className="border-b"><td className="p-2">{m.first_name} {m.last_name}</td><td className="p-2">{m.member_type}</td><td className="p-2">{m.age_band??"—"}</td><td className="p-2">{m.latest_membership_start?new Date(m.latest_membership_start).toLocaleDateString("en-GB"):"—"}</td></tr>)}</tbody></table></div>}
+  </section>}
+ </div>
 }

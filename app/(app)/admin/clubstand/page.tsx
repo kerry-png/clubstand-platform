@@ -1,39 +1,8 @@
-// app/admin/clubstand/page.tsx
-import Link from 'next/link';
-import { requirePlatformAdmin } from '@/lib/auth/requirePlatformAdmin';
-
-export default async function ClubStandAdminHome() {
-  await requirePlatformAdmin({ redirectTo: '/admin/clubstand' });
-
-  return (
-    <div className="space-y-4">
-      <h1
-        className="text-2xl font-semibold"
-        style={{ color: 'var(--brand-primary)' }}
-      >
-        ClubStand operator admin
-      </h1>
-
-      <p className="text-sm text-slate-700">
-        Manage clubs, branding, Stripe onboarding and platform settings.
-      </p>
-
-      <div className="flex gap-2">
-        <Link
-          href="/admin/clubstand/clubs"
-          className="rounded-md px-4 py-2 text-sm font-semibold text-white"
-          style={{ backgroundColor: 'var(--brand-primary)' }}
-        >
-          Manage clubs
-        </Link>
-
-        <Link
-          href="/admin"
-          className="rounded-md border px-4 py-2 text-sm font-semibold"
-        >
-          Go to club admin
-        </Link>
-      </div>
-    </div>
-  );
-}
+// app/(app)/admin/clubstand/page.tsx
+import Link from"next/link";import{requirePlatformAdmin}from"@/lib/auth/requirePlatformAdmin";import{getPlatformDashboard}from"@/lib/platform/dashboard";
+const money=(p:number)=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"}).format(p/100);
+export default async function Page(){await requirePlatformAdmin({redirectTo:"/admin/clubstand"});const{summary,clubs}=await getPlatformDashboard();const top=[...clubs].sort((a,b)=>b.memberCount-a.memberCount).slice(0,6);return <div className="space-y-6"><div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">ClubStand</h1><p className="text-sm text-slate-600">Platform overview across every club.</p></div><Link href="/admin/clubstand/clubs/new" className="rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white">+ Add club</Link></div>
+<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Card label="Live clubs" value={String(summary.liveClubs)} sub={`${summary.archivedClubs} archived · ${summary.clubs} total`}/><Card label="Registered members" value={summary.members.toLocaleString("en-GB")} sub={`${summary.households.toLocaleString("en-GB")} household accounts`}/><Card label="Active memberships" value={summary.activeMemberships.toLocaleString("en-GB")} sub={`${money(summary.membershipValuePennies)} recorded membership value`}/><Card label="ClubStand fees" value={money(summary.estimatedFeePennies)} sub={`${money(summary.estimatedPlatformMonthlyPennies)} platform MRR + estimated transaction fees`}/></div>
+<div className="grid gap-4 lg:grid-cols-3"><section className="rounded-xl border bg-white p-4 lg:col-span-2"><div className="flex justify-between"><h2 className="font-semibold">Clubs at a glance</h2><Link className="text-sm underline" href="/admin/clubstand/clubs">All clubs</Link></div><div className="mt-3 divide-y">{top.map(c=><Link key={c.id} href={`/admin/clubstand/clubs/${c.id}`} className="grid grid-cols-4 gap-2 py-3 text-sm hover:bg-slate-50"><div className="col-span-2"><b>{c.name}</b><div className="text-xs text-slate-500">{c.is_active?"Live":"Archived"} · Stripe {c.stripe_charges_enabled?"connected":c.stripe_onboarding_status??"not connected"}</div></div><div><b>{c.memberCount}</b><div className="text-xs text-slate-500">members</div></div><div className="text-right"><b>{money(c.estimatedFeePennies)}</b><div className="text-xs text-slate-500">est. fees</div></div></Link>)}</div></section>
+<section className="rounded-xl border bg-white p-4"><h2 className="font-semibold">Business view</h2><p className="mt-2 text-sm text-slate-600">The membership value is money belonging to clubs. ClubStand fees are shown separately so turnover is never confused with platform income.</p><Link href="/admin/clubstand/revenue" className="mt-3 inline-block text-sm font-medium underline">Open revenue breakdown →</Link><p className="mt-3 text-xs text-amber-800">Fee income is currently an estimate from database memberships and configured percentage rates. Exact realised revenue needs Stripe fee events/ledger recording, which is not yet stored.</p></section></div></div>}
+function Card({label,value,sub}:{label:string;value:string;sub:string}){return <div className="rounded-xl border bg-white p-4"><div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div><div className="mt-1 text-2xl font-semibold">{value}</div><div className="mt-1 text-xs text-slate-500">{sub}</div></div>}

@@ -15,8 +15,6 @@ function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
-console.log("has SUPABASE_URL?", !!process.env.SUPABASE_URL);
-console.log("has SERVICE KEY?", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 export async function POST(req: Request) {
   try {

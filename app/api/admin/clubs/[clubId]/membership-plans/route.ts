@@ -3,6 +3,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/database.types';
+import { getCurrentAdminForClub } from '@/lib/admins';
+import { canManagePlans } from '@/lib/permissions';
 
 type RouteContext = {
   params: { clubId: string };
@@ -20,13 +22,19 @@ function getServiceSupabase() {
 }
 
 // GET: list membership plans (we'll filter per-club on the client)
-export async function GET(_req: Request) {
+export async function GET(req: Request, context: { params: Promise<{ clubId: string }> | { clubId: string } }) {
+  const raw = context.params as any;
+  const { clubId } = typeof raw?.then === 'function' ? await raw : raw;
+  const admin = await getCurrentAdminForClub(req, clubId);
+  if (!admin || !canManagePlans(admin)) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   try {
     const supabase = getServiceSupabase();
 
     const { data, error } = await supabase
       .from('membership_plans')
       .select('*')
+      .eq('club_id', clubId)
+      .eq('is_archived', false)
       .order('name', { ascending: true });
 
     if (error) {
@@ -53,14 +61,18 @@ export async function GET(_req: Request) {
 
 
 // POST: create OR update a single plan
-export async function POST(req: Request) {
+export async function POST(req: Request, context: { params: Promise<{ clubId: string }> | { clubId: string } }) {
   try {
+    const raw = context.params as any;
+    const { clubId } = typeof raw?.then === 'function' ? await raw : raw;
+    const admin = await getCurrentAdminForClub(req, clubId);
+    if (!admin || !canManagePlans(admin)) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     const supabase = getServiceSupabase();
     const body = await req.json();
 
     // For updates we don’t need club_id (we only use id),
     // for creates we’ll take club_id from the body.
-    const clubId: string | undefined = body.club_id;
+    if (body.club_id && body.club_id !== clubId) return NextResponse.json({ error: 'Club mismatch' }, { status: 400 });
 
     // UPDATE flow – existing plan
     if (body.id) {
@@ -88,6 +100,17 @@ export async function POST(req: Request) {
           typeof body.is_visible_online === 'boolean'
             ? body.is_visible_online
             : undefined,
+        is_player_plan:
+          typeof body.is_player_plan === 'boolean' ? body.is_player_plan : undefined,
+        is_junior_only:
+          typeof body.is_junior_only === 'boolean' ? body.is_junior_only : undefined,
+        minimum_age: Number.isInteger(body.minimum_age) ? body.minimum_age : null,
+        maximum_age: Number.isInteger(body.maximum_age) ? body.maximum_age : null,
+        requires_approval: body.requires_approval === true,
+        mid_season_treatment: ['inherit','full','prorata','trial','manual'].includes(body.mid_season_treatment) ? body.mid_season_treatment : 'inherit',
+        trial_days: Number.isInteger(body.trial_days) ? body.trial_days : null,
+        is_household_plan:
+          typeof body.is_household_plan === 'boolean' ? body.is_household_plan : undefined,
         signing_fee_pennies: body.signing_fee_pennies ?? 0,
         allow_discount_codes:
           typeof body.allow_discount_codes === 'boolean'
@@ -103,7 +126,8 @@ export async function POST(req: Request) {
       const { data, error } = await supabase
         .from('membership_plans')
         .update(planUpdate)
-        .eq('id', body.id) // only match by id
+        .eq('id', body.id)
+        .eq('club_id', clubId)
         .select('*')
         .single();
 
@@ -137,7 +161,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const insertPayload: Database['public']['Tables']['membership_plans']['Insert'] =
+    const insertPayload: any =
       {
         club_id: clubId,
         name: body.name,
@@ -150,6 +174,11 @@ export async function POST(req: Request) {
         is_household_plan: body.is_household_plan ?? false,
         is_player_plan: body.is_player_plan ?? true,
         is_junior_only: body.is_junior_only ?? false,
+        minimum_age: Number.isInteger(body.minimum_age) ? body.minimum_age : null,
+        maximum_age: Number.isInteger(body.maximum_age) ? body.maximum_age : null,
+        requires_approval: body.requires_approval === true,
+        mid_season_treatment: ['inherit','full','prorata','trial','manual'].includes(body.mid_season_treatment) ? body.mid_season_treatment : 'inherit',
+        trial_days: Number.isInteger(body.trial_days) ? body.trial_days : null,
         is_visible_online: body.is_visible_online ?? false,
         max_household_members: body.max_household_members ?? null,
         sort_order: body.sort_order ?? null,

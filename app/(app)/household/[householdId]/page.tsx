@@ -1,11 +1,15 @@
 // app/household/[householdId]/page.tsx
 
 import { supabaseServerClient } from '@/lib/supabaseServer';
+import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ProceedToPaymentButton from './ProceedToPaymentButton';
 import HouseholdPricingPreview from './HouseholdPricingPreview';
 import RemoveMemberButton from './RemoveMemberButton';
+import MembershipActions from './MembershipActions';
+import { consentAppliesTo, hasConsentAnswer, type ConsentContext } from '@/lib/consent/applicability';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
 
 type PageParams = {
   householdId: string;
@@ -23,6 +27,9 @@ export default async function HouseholdDashboardPage(props: PageProps) {
   const query = await props.searchParams;
 
   const householdId = resolvedParams.householdId;
+
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) notFound();
 
   const setupRaw =
     typeof query?.setup === 'string'
@@ -93,6 +100,9 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         membership_year,
         amount_pennies,
         discount_pennies,
+        auto_renews,
+        end_date,
+        stripe_subscription_id,
         plan:membership_plans (
           id,
           name,
@@ -141,6 +151,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     subscriptions?.filter((s: any) => s.status === 'active').length ?? 0;
 
   const hasPendingSubs = pendingCount > 0;
+  const pricingSeasonYear = Math.max(0, ...((subscriptions ?? []).map((s: any) => Number(s.membership_year) || 0)));
 
   // 4) Load safeguarding
   const householdClubId = household.club_id;
@@ -157,6 +168,20 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     .select('*')
     .eq('household_id', householdId);
 
+  const { data: storedMembershipSettings } = await supabase
+    .from('club_membership_settings')
+    .select('*')
+    .eq('club_id', householdClubId)
+    .maybeSingle();
+  const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedMembershipSettings ?? {}) };
+  const consentMembershipYear = currentMembershipYear(new Date(), membershipSettings);
+
+  function consentContextForMember(member: any): ConsentContext {
+    if (member.member_type === 'supporter') return 'parent';
+    if (member.date_of_birth && isJunior(member.date_of_birth, consentMembershipYear, membershipSettings) === true) return 'junior';
+    return 'adult';
+  }
+
   // Map subscriptions per member
   const memberSubsMap = new Map<string, any[]>();
   (subscriptions ?? []).forEach((sub: any) => {
@@ -167,37 +192,32 @@ export default async function HouseholdDashboardPage(props: PageProps) {
     memberSubsMap.set(memId, existing);
   });
 
-  function safeguardingStatusForMember(memberId: string) {
+  function safeguardingStatusForMember(member: any) {
     if (!safeguardingQuestions || safeguardingQuestions.length === 0) {
       return { complete: true, missing: [] as string[] };
     }
 
-    const memberResponses =
-      safeguardingResponses?.filter((r: any) => r.member_id === memberId) ?? [];
+    const context = consentContextForMember(member);
+    const memberResponses = safeguardingResponses?.filter((r: any) => r.member_id === member.id) ?? [];
+    const relevantQuestions = safeguardingQuestions.filter((q: any) =>
+      q.required && q.applies_to !== 'household' && consentAppliesTo(q.applies_to, context),
+    );
+    const missing = relevantQuestions
+      .filter((q: any) => !memberResponses.some((r: any) => r.question_id === q.id && hasConsentAnswer(r)))
+      .map((q: any) => q.label);
 
-    const missing: string[] = [];
-
-    for (const q of safeguardingQuestions) {
-      if (!q.required) continue;
-
-      const hasAnswer = memberResponses.some(
-        (r: any) => r.question_id === q.id && r.value !== null,
-      );
-
-      if (!hasAnswer) missing.push(q.label);
-    }
-
-    return {
-      complete: missing.length === 0,
-      missing,
-    };
+    return { complete: missing.length === 0, missing };
   }
 
-  // Household-level safeguarding
-  let householdSafeguardingComplete = true;
+  const householdQuestions = (safeguardingQuestions ?? []).filter(
+    (q: any) => q.required && q.applies_to === 'household',
+  );
+  const householdResponses = safeguardingResponses?.filter((r: any) => !r.member_id) ?? [];
+  let householdSafeguardingComplete = householdQuestions.every((q: any) =>
+    householdResponses.some((r: any) => r.question_id === q.id && hasConsentAnswer(r)),
+  );
   (members ?? []).forEach((m: any) => {
-    const status = safeguardingStatusForMember(m.id);
-    if (!status.complete) householdSafeguardingComplete = false;
+    if (!safeguardingStatusForMember(m).complete) householdSafeguardingComplete = false;
   });
 
   const formatMemberType = (member: any) => {
@@ -256,7 +276,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             {household.name || 'Your household'}
           </h1>
           <p className="text-sm text-slate-600">
-            Step 1: add members. Step 2: complete consents. Step 3: review membership and pay securely online.
+            Manage the people in your household, their memberships, required forms and payments.
           </p>
 
           <div className="space-y-1 text-xs text-slate-600">
@@ -304,30 +324,22 @@ export default async function HouseholdDashboardPage(props: PageProps) {
         <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
-              Step 1 – Members on this account
+              People in this household
             </h2>
             <p className="text-sm text-slate-600">
-              Add players, parents and other family members linked to this household.
+              Add playing or social members here. The account holder does not need to be a club member.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {householdSafeguardingComplete ? (
-              <Link
-                href={`/household/${householdId}/add-member`}
-                className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-              >
-                Add member
-              </Link>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="inline-flex cursor-not-allowed items-center rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-400"
-              >
-                Add member (complete consents first)
-              </button>
-            )}
+            <Link href={`/household/${householdId}/history`} className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50">History</Link>
+            <Link href={`/household/${householdId}/renew`} className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50">Renew memberships</Link>
+            <Link
+              href={`/household/${householdId}/add-member`}
+              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            >
+              Add person
+            </Link>
           </div>
         </div>
 
@@ -438,15 +450,15 @@ export default async function HouseholdDashboardPage(props: PageProps) {
       {/* STEP 2 – SAFEGUARDING */}
       <section className="space-y-3">
         <h2 className="text-2xl font-semibold" style={{ color: 'var(--brand-primary)' }}>
-          Step 2 – Safeguarding & consents
+          Forms, policies & consents
         </h2>
         <p className="text-sm text-slate-600">
-          Complete the club&apos;s safeguarding, photo and medical consents.
+          Complete the forms and consents required by the club for each person.
         </p>
 
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
           {(members ?? []).map((m: any) => {
-            const status = safeguardingStatusForMember(m.id);
+            const status = safeguardingStatusForMember(m);
 
             return (
               <div
@@ -560,7 +572,13 @@ export default async function HouseholdDashboardPage(props: PageProps) {
                           CANCELLED
                         </span>
                       )}
+                      {sub.status === 'paused' && (
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-blue-800">PAUSED</span>
+                      )}
                     </div>
+                    {sub.end_date && <div className="mt-1 text-[11px] text-slate-500">Ended {new Date(sub.end_date).toLocaleDateString()}</div>}
+                    <div className="mt-1 text-[11px] text-slate-500">{sub.auto_renews ? 'Auto-renew on' : 'Auto-renew off'}</div>
+                    <MembershipActions householdId={householdId} subscriptionId={sub.id} status={sub.status} autoRenews={!!sub.auto_renews} hasStripeSubscription={!!sub.stripe_subscription_id} />
                   </div>
                 </li>
               ))}
@@ -571,7 +589,7 @@ export default async function HouseholdDashboardPage(props: PageProps) {
             </p>
           )}
 
-          <HouseholdPricingPreview householdId={householdId} />
+          <HouseholdPricingPreview householdId={householdId} seasonYear={pricingSeasonYear} />
 
           {!householdSafeguardingComplete && (
             <p className="text-xs text-amber-700">

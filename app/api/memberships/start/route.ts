@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
 
 type BillingPeriod = 'annual' | 'monthly';
 
@@ -10,7 +11,6 @@ type StartPayload = {
   planId: string;
   userEmail: string;
   billingPeriod: BillingPeriod;
-  membershipYear: number;
   member: {
     first_name: string;
     last_name: string;
@@ -19,27 +19,6 @@ type StartPayload = {
     phone: string | null;
   };
 };
-
-function getAgeOnDate(dobIso: string, onDate: Date) {
-  const dob = new Date(dobIso);
-  if (Number.isNaN(dob.getTime())) return null;
-
-  let age = onDate.getFullYear() - dob.getFullYear();
-  const m = onDate.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && onDate.getDate() < dob.getDate())) {
-    age--;
-  }
-  return age;
-}
-
-// Cricket rule: junior status based on age on 1st September for the season year
-function isJuniorForSeason(dobIso: string, membershipYear: number) {
-  // 1st Sept of membershipYear
-  const sept1 = new Date(Date.UTC(membershipYear, 8, 1)); // month 8 = September
-  const age = getAgeOnDate(dobIso, sept1);
-  if (age === null) return null;
-  return age < 18;
-}
 
 function pickBillingPeriod(
   requested: BillingPeriod | undefined,
@@ -64,6 +43,8 @@ function pickBillingPeriod(
 
 export async function POST(req: Request) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.email) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
 
   let payload: StartPayload;
 
@@ -77,13 +58,14 @@ export async function POST(req: Request) {
     );
   }
 
-  const { clubId, planId, userEmail, membershipYear, member } = payload;
+  const { clubId, planId, member } = payload;
+  const userEmail = user.email.trim().toLowerCase();
 
-  if (!clubId || !planId || !userEmail || !membershipYear) {
+  if (!clubId || !planId) {
     return NextResponse.json(
       {
         error: 'Missing required fields',
-        details: 'clubId, planId, userEmail and membershipYear are required.',
+        details: 'clubId and planId are required.',
       },
       { status: 400 },
     );
@@ -96,7 +78,11 @@ export async function POST(req: Request) {
     );
   }
 
-  const juniorForSeason = isJuniorForSeason(member.date_of_birth, membershipYear);
+  const { data: storedSettings } = await supabase
+    .from('club_membership_settings').select('*').eq('club_id', clubId).maybeSingle();
+  const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedSettings ?? {}) };
+  const membershipYear = currentMembershipYear(new Date(), membershipSettings);
+  const juniorForSeason = isJunior(member.date_of_birth, membershipYear, membershipSettings);
   if (juniorForSeason === null) {
     return NextResponse.json(
       { error: 'Invalid date of birth' },

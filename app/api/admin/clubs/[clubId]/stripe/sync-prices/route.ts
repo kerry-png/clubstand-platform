@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseServerClient } from '@/lib/supabaseServer';
 import { getCurrentAdminForClub } from '@/lib/admins';
-import { canViewPayments } from '@/lib/permissions';
+import { canEditPayments } from '@/lib/permissions';
 
 type Params = { clubId: string };
 type Props = { params: Promise<Params> };
@@ -11,7 +11,7 @@ export async function POST(_req: Request, { params }: Props) {
   const { clubId } = await params;
 
   const admin = await getCurrentAdminForClub(null as any, clubId);
-  if (!admin || !canViewPayments(admin)) {
+  if (!admin || !canEditPayments(admin)) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 });
   }
 

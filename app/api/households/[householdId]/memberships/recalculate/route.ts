@@ -1,8 +1,9 @@
 // app/api/households/[householdId]/memberships/recalculate/route.ts
 
 import { NextResponse } from "next/server";
-import { supabaseServerClient } from "@/lib/supabaseServer";
+import { requireHouseholdAccess } from "@/lib/auth/householdAccess";
 import { applyPricingRules, type PricingRule, type PricedItem } from "@/lib/pricing";
+import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from "@/lib/membership/rules";
 
 type RouteParams = { householdId: string };
 
@@ -24,27 +25,11 @@ function planKindFromPlan(plan: any): "adult" | "junior" | "other" {
   return "other";
 }
 
-async function getHouseholdClubId(householdId: string): Promise<string | null> {
-  const { data, error } = await supabaseServerClient
-    .from("membership_subscriptions")
-    .select("club_id")
-    .eq("household_id", householdId)
-    .not("club_id", "is", null)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.error("getHouseholdClubId error", error);
-    return null;
-  }
-  return (data?.club_id as string | null) ?? null;
-}
 
 export async function POST(
   req: Request,
   context: { params: RouteParams } | { params: Promise<RouteParams> },
 ) {
-  const supabase = supabaseServerClient;
 
   const rawParams: any = (context as any).params;
   const resolvedParams: RouteParams = rawParams?.then ? await rawParams : rawParams;
@@ -54,10 +39,17 @@ export async function POST(
     return NextResponse.json({ error: "Missing household id in URL" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => null);
-  const seasonYear = Number(body?.seasonYear ?? 2026) || 2026;
+  const access = await requireHouseholdAccess(householdId);
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+  const supabase = access.supabase;
+  const clubId = access.household.club_id as string;
 
-  const clubId = await getHouseholdClubId(householdId);
+  const body = await req.json().catch(() => null);
+  const { data: settingsRow } = await supabase.from("club_membership_settings").select("*").eq("club_id", clubId).maybeSingle();
+  const settings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(settingsRow ?? {}) };
+  const defaultYear = currentMembershipYear(new Date(), settings);
+  const seasonYear = Number(body?.seasonYear ?? defaultYear) || defaultYear;
+
 
   const { data: rawSubs, error: subsError } = await supabase
     .from("membership_subscriptions")
@@ -126,11 +118,20 @@ export async function POST(
 
   const planById = new Map((plansRows ?? []).map((p: any) => [p.id, p]));
 
+  const memberIds = Array.from(new Set(subs.map((s) => s.member_id).filter(Boolean))) as string[];
+  const { data: memberRows } = memberIds.length ? await supabase.from("members").select("id,date_of_birth,member_type").in("id", memberIds) : { data: [] as any[] };
+  const memberById = new Map((memberRows ?? []).map((m:any)=>[m.id,m]));
+
   const items: PricedItem[] = subs.map((s) => {
     const plan = planById.get(s.plan_id);
+    const member:any = s.member_id ? memberById.get(s.member_id) : null;
+    const junior = member?.date_of_birth ? isJunior(member.date_of_birth, seasonYear, settings) : null;
+    const kind = plan?.is_player_plan ? (junior === true ? "junior" : "adult") : "other";
     return {
+      subscriptionId: s.id,
+      memberId: s.member_id ?? undefined,
       planId: s.plan_id,
-      kind: planKindFromPlan(plan),
+      kind,
       amountPennies: Number(s.amount_pennies ?? 0),
     };
   });
