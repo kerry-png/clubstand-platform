@@ -199,7 +199,25 @@ export async function POST(req: Request) {
           continue;
         }
         for (const m of renewalMembers ?? []) {
-          const context = m.member_type === 'supporter' ? 'parent' : m.date_of_birth && isJunior(m.date_of_birth, renewalYear, membershipSettings) === true ? 'junior' : 'adult';
+          const renewalStartDate = new Date(
+  Date.UTC(
+    renewalYear,
+    membershipSettings.membership_year_start_month - 1,
+    membershipSettings.membership_year_start_day,
+  ),
+);
+
+const context =
+  m.member_type === 'supporter'
+    ? 'parent'
+    : m.date_of_birth &&
+        isJunior(
+          m.date_of_birth,
+          renewalStartDate,
+          membershipSettings,
+        ) === true
+      ? 'junior'
+      : 'adult';
           if (consentAppliesTo(q.applies_to, context as any) && !accepted.has(`${m.id}:${versionId}`)) return NextResponse.json({ error: 'Required renewal forms are still incomplete.' }, { status: 409 });
         }
       }

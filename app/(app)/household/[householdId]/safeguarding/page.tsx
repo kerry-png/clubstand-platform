@@ -3,7 +3,7 @@ import { supabaseServerClient } from '@/lib/supabaseServer';
 import { notFound, redirect } from 'next/navigation';
 import SafeguardingStepClient from '@/components/safeguarding/SafeguardingStepClient';
 import { requireHouseholdAccess } from '@/lib/auth/householdAccess';
-import { DEFAULT_MEMBERSHIP_SETTINGS, currentMembershipYear, isJunior } from '@/lib/membership/rules';
+import { DEFAULT_MEMBERSHIP_SETTINGS, isJunior } from '@/lib/membership/rules';
 
 type PageProps = {
   params: Promise<{ householdId: string }>;
@@ -63,8 +63,9 @@ export default async function HouseholdSafeguardingPage({
       .eq('club_id', household.club_id)
       .maybeSingle();
     const settings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedSettings ?? {}) };
-    const year = currentMembershipYear(new Date(), settings);
-    if (isJunior(member.date_of_birth, year, settings) === true) context = 'junior';
+    if (isJunior(member.date_of_birth, new Date(), settings) === true) {
+      context = 'junior';
+    }
   }
 
   return (

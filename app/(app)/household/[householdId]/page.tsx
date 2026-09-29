@@ -178,7 +178,12 @@ export default async function HouseholdDashboardPage(props: PageProps) {
 
   function consentContextForMember(member: any): ConsentContext {
     if (member.member_type === 'supporter') return 'parent';
-    if (member.date_of_birth && isJunior(member.date_of_birth, consentMembershipYear, membershipSettings) === true) return 'junior';
+    if (
+      member.date_of_birth &&
+      isJunior(member.date_of_birth, new Date(), membershipSettings) === true
+    ) {
+      return 'junior';
+    }
     return 'adult';
   }
 

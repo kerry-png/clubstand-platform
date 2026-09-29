@@ -204,8 +204,20 @@ export async function GET(req: Request, context: RouteContext) {
       const isPlaying = m.member_type === "player";
       // Membership eligibility uses the club's configured assessment date/age.
       // Cricket age_band remains a display/team concept and is deliberately separate.
+      const membershipStartDate = new Date(
+        Date.UTC(
+          seasonYear,
+          membershipSettings.membership_year_start_month - 1,
+          membershipSettings.membership_year_start_day,
+        ),
+      );
+
       const juniorByMembershipRule = m.date_of_birth
-        ? isJuniorForMembership(m.date_of_birth, seasonYear, membershipSettings)
+        ? isJuniorForMembership(
+            m.date_of_birth,
+            membershipStartDate,
+            membershipSettings,
+          )
         : null;
       const isJunior = juniorByMembershipRule === true && isPlaying;
 

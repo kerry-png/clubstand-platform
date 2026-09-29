@@ -125,8 +125,22 @@ export async function POST(
   const items: PricedItem[] = subs.map((s) => {
     const plan = planById.get(s.plan_id);
     const member:any = s.member_id ? memberById.get(s.member_id) : null;
-    const junior = member?.date_of_birth ? isJunior(member.date_of_birth, seasonYear, settings) : null;
-    const kind = plan?.is_player_plan ? (junior === true ? "junior" : "adult") : "other";
+
+    const membershipStartDate = new Date(
+      Date.UTC(
+        seasonYear,
+        settings.membership_year_start_month - 1,
+        settings.membership_year_start_day,
+      ),
+    );
+
+    const junior = member?.date_of_birth
+      ? isJunior(member.date_of_birth, membershipStartDate, settings)
+      : null;
+
+    const kind = plan?.is_player_plan
+      ? (junior === true ? "junior" : "adult")
+      : "other";
     return {
       subscriptionId: s.id,
       memberId: s.member_id ?? undefined,

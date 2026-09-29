@@ -43,8 +43,18 @@ export default async function AddMembershipPage(props: PageProps) {
 
   if (!member) notFound();
 
-  const juniorForSeason =
-    member.date_of_birth ? isJunior(member.date_of_birth, membershipYear, membershipSettings) : null;
+  const membershipStartDate = new Date(
+  Date.UTC(
+    membershipYear,
+    membershipSettings.membership_year_start_month - 1,
+    membershipSettings.membership_year_start_day,
+  ),
+);
+
+const juniorForSeason =
+  member.date_of_birth
+    ? isJunior(member.date_of_birth, membershipStartDate, membershipSettings)
+    : null;
 
   // Load plans for this club
   const { data: plans } = await supabase

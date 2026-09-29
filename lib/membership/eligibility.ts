@@ -28,8 +28,20 @@ export function evaluatePlanEligibility(args: {
   plan: EligibilityPlan;
 }): EligibilityResult {
   const { dob, role, membershipYear, settings, plan } = args;
-  const age = dob ? ageOnDate(dob, assessmentDateForYear(membershipYear, settings)) : null;
-  const junior = dob ? isJunior(dob, membershipYear, settings) : null;
+  const membershipStartDate = new Date(
+  Date.UTC(
+    membershipYear,
+    settings.membership_year_start_month - 1,
+    settings.membership_year_start_day,
+  ),
+);
+
+  const age = dob ? ageOnDate(dob, membershipStartDate) : null;
+
+  const junior = dob
+    ? isJunior(dob, membershipStartDate, settings)
+    : null;
+    
   const requiresApproval = plan.requires_approval === true;
 
   if (role === 'player' && plan.is_player_plan === false) return { eligible: false, age, junior, requiresApproval, reason: 'This is a non-playing membership.' };

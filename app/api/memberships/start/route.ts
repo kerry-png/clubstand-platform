@@ -82,7 +82,19 @@ export async function POST(req: Request) {
     .from('club_membership_settings').select('*').eq('club_id', clubId).maybeSingle();
   const membershipSettings = { ...DEFAULT_MEMBERSHIP_SETTINGS, ...(storedSettings ?? {}) };
   const membershipYear = currentMembershipYear(new Date(), membershipSettings);
-  const juniorForSeason = isJunior(member.date_of_birth, membershipYear, membershipSettings);
+  const membershipStartDate = new Date(
+  Date.UTC(
+    membershipYear,
+    membershipSettings.membership_year_start_month - 1,
+    membershipSettings.membership_year_start_day,
+  ),
+);
+
+const juniorForSeason = isJunior(
+  member.date_of_birth,
+  membershipStartDate,
+  membershipSettings,
+);
   if (juniorForSeason === null) {
     return NextResponse.json(
       { error: 'Invalid date of birth' },
