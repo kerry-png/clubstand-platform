@@ -1,3 +1,5 @@
+//app/api/admin/clubs/[clubId]/invitations/[invitationId]/route.ts
+
 import { NextResponse } from 'next/server';
 import { getCurrentAdminForClub } from '@/lib/admins';
 import { supabaseServerClient } from '@/lib/supabaseServer';

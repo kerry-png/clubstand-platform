@@ -174,10 +174,10 @@ export default async function InvitationPage({ params, searchParams }: PageProps
         <div className="space-y-6 px-6 py-8 sm:px-8">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              You&apos;re invited to join {club?.name || 'the club'}
+              Register your household with {club?.name || 'the club'}
             </h1>
             <p className="mt-3 leading-7 text-slate-600">
-              Hello {invitation.account_holder_first_name}. The club has approved your household to register for the {invitation.season_year} season using ClubStand.
+              Hello {invitation.account_holder_first_name}. Your household has been approved to register with {club?.name || 'the club'}.
             </p>
           </div>
 
@@ -197,15 +197,28 @@ export default async function InvitationPage({ params, searchParams }: PageProps
           <div>
             <h2 className="text-lg font-semibold text-slate-900">What happens next?</h2>
             <ol className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
-              <li><span className="font-semibold text-slate-900">1.</span> Create your secure ClubStand login.</li>
-              <li><span className="font-semibold text-slate-900">2.</span> Add your household and member details.</li>
-              <li><span className="font-semibold text-slate-900">3.</span> Review the membership information and club consents.</li>
+              <li>
+                <span className="font-semibold text-slate-900">1.</span>{' '}
+                Create your {club?.name || 'club'} account.
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">2.</span>{' '}
+                Add your household, contact and member details.
+              </li>
+              <li>
+                <span className="font-semibold text-slate-900">3.</span>{' '}
+                Complete the required membership information and club consents.
+              </li>
             </ol>
           </div>
 
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-            This is the first invitation page for review. The secure registration form will be connected in the next step.
-          </div>
+          <a
+            href={`/invitation/${invitation.id}/register?token=${encodeURIComponent(token)}`}
+            className="block w-full rounded-xl px-5 py-3.5 text-center text-base font-semibold text-white shadow-sm"
+            style={{ background: primary }}
+          >
+            Start registration
+          </a>
         </div>
       </section>
     </main>

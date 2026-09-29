@@ -1,3 +1,5 @@
+//app/api/admin/clubs/[clubId]/invitations/route.ts
+
 import { createHash, randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { getCurrentAdminForClub } from '@/lib/admins';
@@ -126,7 +128,7 @@ export async function POST(req: Request, context: { params: Promise<RouteParams>
   const seasonYear = Number(club.active_season_year) || new Date().getFullYear() + 1;
   const token = randomBytes(32).toString('base64url');
   const tokenHash = createHash('sha256').update(token).digest('hex');
-  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: invitation, error } = await supabaseServerClient
     .from('membership_invitations')
