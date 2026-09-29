@@ -1,6 +1,9 @@
 -- supabase/migrations/202609290001_membership_v26_consolidated.sql
--- V26 CONSOLIDATED REVIEW MIGRATION — NOT YET APPLIED.
+-- V26.1 CONSOLIDATED MIGRATION — REVIEWED AGAINST LIVE SCHEMA 29 SEP 2026.
 -- Replaces the seven membership/commercial draft migrations from v11-v25.
+-- CSV/import staging tables intentionally excluded.
+-- New configuration/history tables follow the existing server-managed mixed-RLS architecture;
+-- no blanket RLS changes are made by this migration.
 
 -- supabase/migrations/202609240001_add_policy_versioning.sql
 -- ClubStand Membership: immutable policy/form versions and acceptance history.
@@ -123,10 +126,26 @@ create index if not exists membership_subscriptions_review_queue_idx
 -- REVIEW AGAINST LIVE SCHEMA BEFORE APPLYING.
 alter table public.pricing_rules
   add column if not exists name text,
+  add column if not exists bundle_adults_required integer,
+  add column if not exists bundle_juniors_required integer,
+  add column if not exists bundle_juniors_any boolean,
   add column if not exists discount_from_position integer,
   add column if not exists maximum_discounted_members integer,
   add column if not exists required_plan_ids uuid[],
   add column if not exists required_plan_quantities jsonb;
+
+-- Live schema currently permits household_cap, multi_member_discount and bundle.
+-- V26 adds nth_member_discount, used by the pricing engine/admin UI.
+alter table public.pricing_rules drop constraint if exists pricing_rules_rule_type_check;
+alter table public.pricing_rules add constraint pricing_rules_rule_type_check
+  check (rule_type in ('household_cap','multi_member_discount','nth_member_discount','bundle'));
+
+alter table public.pricing_rules drop constraint if exists pricing_rules_bundle_adults_required_check;
+alter table public.pricing_rules add constraint pricing_rules_bundle_adults_required_check
+  check (bundle_adults_required is null or bundle_adults_required >= 0);
+alter table public.pricing_rules drop constraint if exists pricing_rules_bundle_juniors_required_check;
+alter table public.pricing_rules add constraint pricing_rules_bundle_juniors_required_check
+  check (bundle_juniors_required is null or bundle_juniors_required >= 0);
 
 alter table public.pricing_rules drop constraint if exists pricing_rules_discount_from_position_check;
 alter table public.pricing_rules add constraint pricing_rules_discount_from_position_check
@@ -136,12 +155,10 @@ alter table public.pricing_rules add constraint pricing_rules_maximum_discounted
   check (maximum_discounted_members is null or maximum_discounted_members >= 1);
 
 -- Clubs may need several rules of the same type (e.g. second child and third child discounts).
--- If an earlier prototype created a club/type unique constraint, remove it after confirming its live name.
--- Do not apply destructive constraint changes blindly; inspect the live schema first.
+-- Live-schema review confirmed there is no club/type unique constraint to remove.
 
 
 -- supabase/migrations/202609250004_add_club_commercial_terms.sql
--- DRAFT / NOT APPLIED
 -- ClubStand commercial terms are data so grassroots clubs can have appropriate deals.
 
 create table if not exists public.club_commercial_terms (
