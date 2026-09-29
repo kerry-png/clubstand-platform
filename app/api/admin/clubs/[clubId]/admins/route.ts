@@ -22,14 +22,15 @@ export async function GET(req: Request, context: any) {
     const { clubId } = await resolveParams(context);
     const supabase = supabaseServerClient;
 
-    // Permission check: only admins with can_manage_admins (or super admins) can view
-   // const admin = await getCurrentAdminForClub(req, clubId);
-   // if (!canManageAdmins(admin)) {
-   //   return NextResponse.json(
-   //     { error: "Not authorised to manage admins for this club" },
-   //     { status: 403 },
-   //   );
-   // }
+// Permission check: only admins with can_manage_admins (or super admins) can view
+const admin = await getCurrentAdminForClub(req, clubId);
+
+if (!canManageAdmins(admin)) {
+  return NextResponse.json(
+    { error: "Not authorised to manage admins for this club" },
+    { status: 403 },
+  );
+}
 
     const { data, error } = await supabase
       .from("club_admin_users")

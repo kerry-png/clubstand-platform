@@ -2,7 +2,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { canManageAdmins } from '@/lib/permissions';
 
 type AdminUser = {
   id: string;
@@ -33,8 +32,6 @@ export default function AdminsClient({ clubId }: Props) {
 
   const [emailInput, setEmailInput] = useState('');
   const [adding, setAdding] = useState(false);
-
-  const canManageAdminsFlag = canManageAdmins(null); // auth wiring still TODO
 
   // -------------------------------
   // Load admins
@@ -159,14 +156,6 @@ export default function AdminsClient({ clubId }: Props) {
   // -------------------------------
   // Guards + loading
   // -------------------------------
-  if (!canManageAdminsFlag) {
-    return (
-      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-        You do not have permission to manage admins for this club.
-      </div>
-    );
-  }
-
   if (loading) {
     return <p className="text-sm text-slate-600">Loading admins…</p>;
   }
