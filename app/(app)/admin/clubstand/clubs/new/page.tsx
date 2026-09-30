@@ -16,6 +16,16 @@ function slugify(input: string) {
 export default async function CreateClubPage() {
   await requirePlatformAdmin({ redirectTo: '/admin/clubstand/clubs/new' });
 
+    const { data: sports, error: sportsError } = await supabaseServerClient
+      .from('sports')
+      .select('id, key, name')
+      .eq('is_active', true)
+      .order('name');
+
+    if (sportsError) {
+      console.error('Could not load sports', sportsError);
+    }
+
   async function createClubAction(formData: FormData) {
     'use server';
 
@@ -24,6 +34,11 @@ export default async function CreateClubPage() {
     const nameRaw = String(formData.get('name') ?? '').trim();
     const slugRaw = String(formData.get('slug') ?? '').trim();
     const subdomainRaw = String(formData.get('subdomain') ?? '').trim();
+    const sportId = String(formData.get('sport_id') ?? '').trim();
+
+    if (!sportId) {
+      redirect('/admin/clubstand/clubs/new?error=missing_sport');
+    }
 
     const primary = String(formData.get('primary_colour') ?? '').trim() || null;
     const secondary =
@@ -42,20 +57,32 @@ export default async function CreateClubPage() {
       redirect('/admin/clubstand/clubs/new?error=missing_slug');
     }
 
-    const { error } = await supabaseServerClient.from('clubs').insert({
-      name,
-      slug,
-      subdomain,
-      primary_colour: primary,
-      secondary_colour: secondary,
-      accent_colour: accent,
-      is_active: true,
-    });
+    const { data: createdClub, error } = await supabaseServerClient
+      .from('clubs')
+      .insert({
+        name,
+        slug,
+        subdomain,
+        sport_id: sportId,
+        primary_colour: primary,
+        secondary_colour: secondary,
+        accent_colour: accent,
+        is_active: true,
+      })
+      .select('id')
+      .single();
 
-    if (error) {
+    if (error || !createdClub) {
       console.error('Create club failed', error);
-      // keep it simple: bounce back with an error flag (we’ll polish later)
       redirect('/admin/clubstand/clubs/new?error=create_failed');
+    }
+
+    const { error: sportSettingsError } = await supabaseServerClient
+      .from('club_sport_settings')
+      .insert({ club_id: createdClub.id, sport_id: sportId });
+
+    if (sportSettingsError) {
+      console.error('Create club sport settings failed', sportSettingsError);
     }
 
     redirect('/admin/clubstand/clubs');
@@ -98,6 +125,33 @@ export default async function CreateClubPage() {
             placeholder="Rainhill Cricket Club"
             required
           />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-semibold text-slate-700">
+            Sport / activity
+          </label>
+
+          <select
+            name="sport_id"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+            required
+            defaultValue=""
+          >
+            <option value="" disabled>
+              Select a sport or activity
+            </option>
+
+            {(sports ?? []).map((sport) => (
+              <option key={sport.id} value={sport.id}>
+                {sport.name}
+              </option>
+            ))}
+          </select>
+
+          <p className="text-xs text-slate-500">
+            Available sports and activities are managed by ClubStand.
+          </p>
         </div>
 
         <div className="space-y-1">

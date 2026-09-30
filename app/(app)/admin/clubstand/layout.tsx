@@ -35,6 +35,12 @@ export default async function ClubStandAdminLayout({
               Back to club admin
             </Link>
             <Link
+              href="/admin/clubstand/sports"
+              className="rounded-md border px-3 py-1.5 text-xs"
+            >
+              Sports & activities
+            </Link>
+            <Link
               href="/admin/clubstand/clubs"
               className="rounded-md px-3 py-1.5 text-xs text-white"
               style={{ backgroundColor: 'var(--brand-primary)' }}
